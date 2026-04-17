@@ -41,6 +41,7 @@ def export_to_excel(grade_results, answer_key, exam_name, output_path):
     _detail(wb, grade_results, answer_key)
     _sk_sheet(wb, grade_results)
     _charts(wb, grade_results)
+    _clave_sheet(wb, answer_key, exam_name)
     if "Sheet" in wb.sheetnames:
         del wb["Sheet"]
     wb.save(output_path)
@@ -263,3 +264,132 @@ def _charts(wb, results):
 
     for col, w in enumerate([10,14,14,10,10], 1):
         _cw(ws, col, w)
+
+
+def _clave_sheet(wb, answer_key, exam_name):
+    ws = wb.create_sheet("Clave de Respuestas")
+    ws.sheet_view.showGridLines = False
+    n        = len(answer_key)
+    last_col = get_column_letter(n + 1)
+
+    ws.merge_cells(f"A1:{last_col}1")
+    ws["A1"].value     = f"Clave de Respuestas — {exam_name}"
+    ws["A1"].font      = Font(bold=True, size=13, color=C_HDR_FG, name="Arial")
+    ws["A1"].fill      = PatternFill("solid", fgColor=C_HDR_BG)
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 28
+
+    # Row 3 — question numbers
+    lbl = ws.cell(row=3, column=1, value="Pregunta")
+    lbl.font = Font(bold=True, name="Arial", size=10)
+    lbl.fill = PatternFill("solid", fgColor="ECF0F1")
+    lbl.alignment = Alignment(horizontal="center")
+    for i in range(n):
+        cell = ws.cell(row=3, column=i + 2, value=i + 1)
+        cell.font      = Font(bold=True, name="Arial", size=10)
+        cell.fill      = PatternFill("solid", fgColor="ECF0F1")
+        cell.alignment = Alignment(horizontal="center")
+
+    # Row 4 — answers
+    lbl2 = ws.cell(row=4, column=1, value="Respuesta")
+    lbl2.font      = Font(bold=True, name="Arial", size=10, color=C_HDR_FG)
+    lbl2.fill      = PatternFill("solid", fgColor=C_ACCENT)
+    lbl2.alignment = Alignment(horizontal="center")
+    for i, ans in enumerate(answer_key):
+        cell = ws.cell(row=4, column=i + 2, value=ans)
+        cell.font      = Font(bold=True, name="Arial", size=11)
+        cell.fill      = PatternFill("solid", fgColor=C_GREEN)
+        cell.alignment = Alignment(horizontal="center")
+
+    ws.column_dimensions["A"].width = 12
+    for i in range(n):
+        ws.column_dimensions[get_column_letter(i + 2)].width = 5
+
+
+# ── Reader helpers ─────────────────────────────────────────────────────────────
+
+def read_answer_key_from_excel(excel_path):
+    """Return the answer key list from a previously exported Excel, or None."""
+    from openpyxl import load_workbook
+    wb = load_workbook(excel_path, data_only=True)
+    if "Clave de Respuestas" not in wb.sheetnames:
+        return None
+    ws = wb["Clave de Respuestas"]
+    for row in ws.iter_rows():
+        if row[0].value == "Respuesta":
+            return [cell.value for cell in row[1:] if cell.value is not None]
+    return None
+
+
+def read_session_from_excel(excel_path):
+    """
+    Read a previously exported session.
+    Returns (exam_name, answer_key, rows) where each row is a dict with:
+        page_num, folio, grado, grupo, score, total, percentage,
+        sk_average, confidence, error, mc_answers, sk_answers
+    """
+    from openpyxl import load_workbook
+    wb = load_workbook(excel_path, data_only=True)
+
+    # Exam name
+    exam_name = "Examen"
+    if "Resumen" in wb.sheetnames:
+        title = wb["Resumen"]["A1"].value or ""
+        if "—" in str(title):
+            exam_name = str(title).split("—", 1)[1].strip()
+
+    answer_key = read_answer_key_from_excel(excel_path) or []
+    n_q        = len(answer_key)
+
+    # Resumen sheet → base student data
+    resumen = {}
+    if "Resumen" in wb.sheetnames:
+        for row in wb["Resumen"].iter_rows(min_row=5, values_only=True):
+            if row[0] is None:
+                break
+            folio = str(row[0])
+            resumen[folio] = {
+                "folio":      folio,
+                "grado":      str(row[1]) if row[1] else None,
+                "grupo":      str(row[2]) if row[2] else None,
+                "score":      row[3] or 0,
+                "total":      row[4] or n_q,
+                "percentage": row[5] or 0.0,
+                "sk_average": row[7] if row[7] not in (None, "N/A") else None,
+                "confidence": (row[8] or 0) / 100,
+                "error":      str(row[9]) if row[9] and row[9] != "OK" else None,
+            }
+
+    # Detalle Preguntas → page_num + mc_answers
+    detail = {}
+    if "Detalle Preguntas" in wb.sheetnames:
+        for row in wb["Detalle Preguntas"].iter_rows(min_row=4, values_only=True):
+            if row[0] is None or row[1] is None:
+                break
+            folio = str(row[1])
+            detail[folio] = {
+                "page_num":   int(row[0]) if row[0] else 0,
+                "mc_answers": [v if v != "-" else None
+                               for v in row[4:4 + n_q]],
+            }
+
+    # Autoconocimiento → sk_answers
+    sk_data = {}
+    if "Autoconocimiento" in wb.sheetnames:
+        for row in wb["Autoconocimiento"].iter_rows(min_row=3, values_only=True):
+            if row[0] is None:
+                break
+            folio = str(row[0])
+            sk_data[folio] = [v if v != "-" else None for v in row[3:13]]
+
+    # Merge and sort
+    rows = []
+    for folio, rd in resumen.items():
+        dd  = detail.get(folio, {})
+        row = {**rd,
+               "page_num":   dd.get("page_num", 0),
+               "mc_answers": dd.get("mc_answers", [None] * n_q),
+               "sk_answers": sk_data.get(folio, [None] * 10)}
+        rows.append(row)
+    rows.sort(key=lambda r: r["page_num"])
+    return exam_name, answer_key, rows

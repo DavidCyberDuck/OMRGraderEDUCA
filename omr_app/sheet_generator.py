@@ -1,16 +1,54 @@
 """
 OMR Sheet Generator — all coordinates from layout.py.
 """
-import os
+import os, sys, platform
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+
+def _register_arial():
+    """Register Arial TrueType fonts; return True on success."""
+    if platform.system() == "Darwin":
+        dirs = ["/Library/Fonts", "/System/Library/Fonts/Supplemental"]
+        names = {"Arial": "Arial.ttf", "Arial-Bold": "Arial Bold.ttf",
+                 "Arial-Italic": "Arial Italic.ttf"}
+    elif platform.system() == "Windows":
+        dirs = [r"C:\Windows\Fonts"]
+        names = {"Arial": "arial.ttf", "Arial-Bold": "arialbd.ttf",
+                 "Arial-Italic": "ariali.ttf"}
+    else:
+        return False
+    try:
+        for name, filename in names.items():
+            for d in dirs:
+                path = os.path.join(d, filename)
+                if os.path.exists(path):
+                    pdfmetrics.registerFont(TTFont(name, path))
+                    break
+            else:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+if _register_arial():
+    FONT        = "Arial"
+    FONT_BOLD   = "Arial-Bold"
+    FONT_ITALIC = "Arial-Italic"
+else:
+    FONT        = FONT
+    FONT_BOLD   = FONT_BOLD
+    FONT_ITALIC = FONT_ITALIC
 
 from layout import (
-    PAGE_W, PAGE_H, MARGIN_L, BUBBLE_R, BUBBLE_SP_X, BUBBLE_SP_Y,
+    PAGE_W, PAGE_H, MARGIN_L, MARGIN_R, BUBBLE_R, BUBBLE_SP_X, BUBBLE_SP_Y,
     COL_W, BUBBLE_OFFSET, Q_NUM_OFFSET,
-    LOGO_W, LOGO_H, LOGO_X, LOGO_Y, TITLE_X, TITLE_Y,
+    LOGO_W, LOGO_H, LOGO_X, LOGO_Y, ABE_LOGO_H, TITLE_X, TITLE_Y,
     FIELDS_Y1, BUBBLE_ROW_Y, SEPARATOR_Y,
     GRADO_LABEL_X, GRADO_B1_X, GRADO_VALUES, grado_bubble_x,
     GRUPO_LABEL_X, GRUPO_B1_X, GRUPO_VALUES, grupo_bubble_x,
@@ -20,8 +58,9 @@ from layout import (
     MARKER_SIZE, MARKERS,
 )
 
-LOGO_PATH = os.path.join(os.path.dirname(__file__), "logo.png")
-FONT_SIZE  = 12
+LOGO_PATH     = os.path.join(os.path.dirname(__file__), "logo.png")
+ABE_LOGO_PATH = os.path.join(os.path.dirname(__file__), "ABE-logo.png")
+FONT_SIZE     = 12
 
 
 def _bubble(c, x, y):
@@ -40,7 +79,7 @@ def _draw_page(c, num_mc_questions, exam_name):
         c.rect(mx - MARKER_SIZE/2, my - MARKER_SIZE/2,
                MARKER_SIZE, MARKER_SIZE, stroke=0, fill=1)
 
-    # ── Logo ──────────────────────────────────────────────────────────────────
+    # ── Logo left (Fundación Educa) ───────────────────────────────────────────
     if os.path.exists(LOGO_PATH):
         try:
             c.drawImage(ImageReader(LOGO_PATH), LOGO_X, LOGO_Y,
@@ -48,14 +87,26 @@ def _draw_page(c, num_mc_questions, exam_name):
         except Exception:
             pass
 
+    # ── Logo right (ABE) ──────────────────────────────────────────────────────
+    if os.path.exists(ABE_LOGO_PATH):
+        try:
+            img   = ImageReader(ABE_LOGO_PATH)
+            iw, ih = img.getSize()
+            abe_w = round(ABE_LOGO_H * iw / ih, 1)   # preserve aspect ratio
+            abe_x = PAGE_W - MARGIN_R - abe_w
+            c.drawImage(img, abe_x, LOGO_Y,
+                        width=abe_w, height=ABE_LOGO_H, mask='auto')
+        except Exception:
+            pass
+
     # ── Exam title — centered ─────────────────────────────────────────────────
     c.setFillColor(colors.HexColor("#1B2A6B"))
-    c.setFont("Helvetica-Bold", 15)
+    c.setFont(FONT_BOLD, 15)
     c.drawCentredString(TITLE_X, TITLE_Y, exam_name)
 
     # ── Field row 1: Nombre, Fecha, Escuela ───────────────────────────────────
     c.setFillColor(colors.black)
-    c.setFont("Helvetica", FONT_SIZE)
+    c.setFont(FONT, FONT_SIZE)
     for fx, text in [
         (MARGIN_L,           "Nombre: ___________________________"),
         (MARGIN_L + 3.3*72,  "Fecha: ____________"),
@@ -68,24 +119,24 @@ def _draw_page(c, num_mc_questions, exam_name):
     MID_Y = BUBBLE_ROW_Y - 4              # vertical center for section labels
 
     # Grado
-    c.setFont("Helvetica-Bold", FONT_SIZE)
+    c.setFont(FONT_BOLD, FONT_SIZE)
     c.setFillColor(colors.black)
     c.drawString(GRADO_LABEL_X, MID_Y, "Grado")
     for i, val in enumerate(GRADO_VALUES):
         bx = grado_bubble_x(i)
         _bubble(c, bx, BUBBLE_ROW_Y)
-        c.setFont("Helvetica", FONT_SIZE)
+        c.setFont(FONT, FONT_SIZE)
         c.setFillColor(colors.black)
         c.drawCentredString(bx, HDR_Y, val)
 
     # Grupo
-    c.setFont("Helvetica-Bold", FONT_SIZE)
+    c.setFont(FONT_BOLD, FONT_SIZE)
     c.setFillColor(colors.black)
     c.drawString(GRUPO_LABEL_X, MID_Y, "Grupo")
     for i, val in enumerate(GRUPO_VALUES):
         bx = grupo_bubble_x(i)
         _bubble(c, bx, BUBBLE_ROW_Y)
-        c.setFont("Helvetica", FONT_SIZE)
+        c.setFont(FONT, FONT_SIZE)
         c.setFillColor(colors.black)
         c.drawCentredString(bx, HDR_Y, val)
 
@@ -93,25 +144,25 @@ def _draw_page(c, num_mc_questions, exam_name):
     FOLIO_HDR_Y  = FOLIO_ROW1_Y + BUBBLE_R + 7   # digit labels above row 1
     folio_n_edge = FOLIO_B1_X - BUBBLE_R - 4      # right edge for N1/N2 labels
 
-    c.setFont("Helvetica-Bold", FONT_SIZE)
+    c.setFont(FONT_BOLD, FONT_SIZE)
     c.setFillColor(colors.black)
     c.drawString(FOLIO_LABEL_X, MID_Y, "Folio")
 
     # Digit labels 1–9 (above row 1 only, shared reference for both rows)
     for i, val in enumerate(FOLIO_VALUES):
-        c.setFont("Helvetica", 9)
+        c.setFont(FONT, 9)
         c.setFillColor(colors.black)
         c.drawCentredString(folio_bubble_x(i), FOLIO_HDR_Y, val)
 
     # Row 1 — Número 1
-    c.setFont("Helvetica", 9)
+    c.setFont(FONT, 9)
     c.setFillColor(colors.black)
     c.drawRightString(folio_n_edge, FOLIO_ROW1_Y - 4, "N1")
     for i in range(len(FOLIO_VALUES)):
         _bubble(c, folio_bubble_x(i), FOLIO_ROW1_Y)
 
     # Row 2 — Número 2
-    c.setFont("Helvetica", 9)
+    c.setFont(FONT, 9)
     c.setFillColor(colors.black)
     c.drawRightString(folio_n_edge, FOLIO_ROW2_Y - 4, "N2")
     for i in range(len(FOLIO_VALUES)):
@@ -126,7 +177,7 @@ def _draw_page(c, num_mc_questions, exam_name):
     q_per_col = (num_mc_questions + 1) // 2
 
     c.setFillColor(colors.black)
-    c.setFont("Helvetica-Bold", FONT_SIZE)
+    c.setFont(FONT_BOLD, FONT_SIZE)
     c.drawString(MARGIN_L, SEC1_TITLE_Y,
                  f"Sección 1 — Opción Múltiple  ({num_mc_questions} preguntas, A–D)")
 
@@ -137,11 +188,11 @@ def _draw_page(c, num_mc_questions, exam_name):
             break
         lx = MARGIN_L + col_idx * COL_W
         c.setFillColor(colors.grey)
-        c.setFont("Helvetica-Oblique", FONT_SIZE - 2)
+        c.setFont(FONT_ITALIC, FONT_SIZE - 2)
         c.drawString(lx, SEC1_RANGE_Y, f"({q_start}–{q_end})")
         for j, ch in enumerate(["A","B","C","D"]):
             c.setFillColor(colors.black)
-            c.setFont("Helvetica-Bold", FONT_SIZE)
+            c.setFont(FONT_BOLD, FONT_SIZE)
             c.drawCentredString(lx + BUBBLE_OFFSET + j*BUBBLE_SP_X, SEC1_HDR_Y, ch)
 
     for i in range(num_mc_questions):
@@ -150,7 +201,7 @@ def _draw_page(c, num_mc_questions, exam_name):
         qx  = MARGIN_L + col * COL_W
         qy  = SEC1_FIRST_Q_Y - row * BUBBLE_SP_Y
         c.setFillColor(colors.black)
-        c.setFont("Helvetica", FONT_SIZE)
+        c.setFont(FONT, FONT_SIZE)
         c.drawRightString(qx + Q_NUM_OFFSET, qy - 4, f"{i+1}.")
         for j in range(4):
             _bubble(c, qx + BUBBLE_OFFSET + j*BUBBLE_SP_X, qy)
@@ -166,7 +217,7 @@ def _draw_page(c, num_mc_questions, exam_name):
     sk_per_col = (SK_Q + 1) // 2
 
     c.setFillColor(colors.black)
-    c.setFont("Helvetica-Bold", FONT_SIZE)
+    c.setFont(FONT_BOLD, FONT_SIZE)
     c.drawString(MARGIN_L, s2y,
                  "Sección 2 — Autoconocimiento  (10 preguntas, escala 1–5)")
 
@@ -177,11 +228,11 @@ def _draw_page(c, num_mc_questions, exam_name):
             break
         lx = MARGIN_L + col_idx * COL_W
         c.setFillColor(colors.grey)
-        c.setFont("Helvetica-Oblique", FONT_SIZE - 2)
+        c.setFont(FONT_ITALIC, FONT_SIZE - 2)
         c.drawString(lx, s2y - 14, f"({q_start}–{q_end})")
         for j, lbl in enumerate(["1","2","3","4","5"]):
             c.setFillColor(colors.black)
-            c.setFont("Helvetica-Bold", FONT_SIZE)
+            c.setFont(FONT_BOLD, FONT_SIZE)
             c.drawCentredString(lx + BUBBLE_OFFSET + j*BUBBLE_SP_X, s2y - 28, lbl)
 
     for i in range(SK_Q):
@@ -190,14 +241,14 @@ def _draw_page(c, num_mc_questions, exam_name):
         qx  = MARGIN_L + col * COL_W
         qy  = s2y - 42 - row * BUBBLE_SP_Y
         c.setFillColor(colors.black)
-        c.setFont("Helvetica", FONT_SIZE)
+        c.setFont(FONT, FONT_SIZE)
         c.drawRightString(qx + Q_NUM_OFFSET, qy - 4, f"{i+1}.")
         for j in range(5):
             _bubble(c, qx + BUBBLE_OFFSET + j*BUBBLE_SP_X, qy)
 
     # ── Footer ────────────────────────────────────────────────────────────────
     c.setFillColor(colors.grey)
-    c.setFont("Helvetica", 9)
+    c.setFont(FONT, 9)
     c.drawCentredString(PAGE_W/2, 20,
         "Use lápiz o bolígrafo negro. Rellene completamente el círculo.")
 
