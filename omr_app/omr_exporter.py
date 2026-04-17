@@ -35,11 +35,12 @@ def _cw(ws, col, w):
     ws.column_dimensions[get_column_letter(col)].width = w
 
 
-def export_to_excel(grade_results, answer_key, exam_name, output_path):
+def export_to_excel(grade_results, answer_key, exam_name, output_path,
+                    student_db=None):
     wb = Workbook()
-    _summary(wb, grade_results, exam_name)
+    _summary(wb, grade_results, exam_name, student_db)
     _detail(wb, grade_results, answer_key)
-    _sk_sheet(wb, grade_results)
+    _sk_sheet(wb, grade_results, student_db)
     _charts(wb, grade_results)
     _clave_sheet(wb, answer_key, exam_name)
     if "Sheet" in wb.sheetnames:
@@ -48,41 +49,62 @@ def export_to_excel(grade_results, answer_key, exam_name, output_path):
     return output_path
 
 
-def _summary(wb, results, exam_name):
+def _summary(wb, results, exam_name, student_db=None):
     ws = wb.create_sheet("Resumen")
     ws.sheet_view.showGridLines = False
 
-    ws.merge_cells("A1:J1")
+    has_db = student_db is not None
+    n_cols = 10 if has_db else 9
+    last_col_ltr = get_column_letter(n_cols)
+
+    ws.merge_cells(f"A1:{last_col_ltr}1")
     ws["A1"].value = f"Resultados — {exam_name}"
     ws["A1"].font  = Font(bold=True, size=14, color=C_HDR_FG, name="Arial")
     ws["A1"].fill  = PatternFill("solid", fgColor=C_HDR_BG)
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 30
 
-    ws.merge_cells("A2:J2")
+    ws.merge_cells(f"A2:{last_col_ltr}2")
     ws["A2"].value = f"Generado: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}"
     ws["A2"].font  = Font(italic=True, size=9, color="888888", name="Arial")
     ws["A2"].alignment = Alignment(horizontal="right")
 
-    headers = ["Folio","Grado","Grupo","Puntaje","Total",
-               "Porcentaje (%)","Calificación","Prom. Autoconoc.",
-               "Confianza (%)","Estado"]
+    if has_db:
+        headers = ["Folio","Nombre","Grado","Grupo","Puntaje","Total",
+                   "Porcentaje (%)","Prom. Autoconoc.","Confianza (%)","Estado"]
+        pct_col = 7
+        col_widths = [8,22,8,8,10,8,16,18,14,10]
+    else:
+        headers = ["Folio","Grado","Grupo","Puntaje","Total",
+                   "Porcentaje (%)","Prom. Autoconoc.","Confianza (%)","Estado"]
+        pct_col = 6
+        col_widths = [8,8,8,10,8,16,18,14,10]
+
     for col, h in enumerate(headers, 1):
         _hdr(ws.cell(row=4, column=col, value=h))
     ws.row_dimensions[4].height = 32
 
-    grade_map = [(90,"A"),(80,"B"),(70,"C"),(60,"D"),(0,"F")]
+    C_YELLOW = "FFF3CD"
 
     for r, gr in enumerate(results, 5):
-        bg     = C_ALT if r % 2 == 0 else "FFFFFF"
-        letter = next(l for pct, l in grade_map if gr.percentage >= pct)
-        row_data = [
-            gr.folio, gr.grado or "?", gr.grupo or "?",
-            gr.score, gr.total, gr.percentage, letter,
-            gr.sk_average if gr.sk_average is not None else "N/A",
-            round(gr.confidence * 100, 0),
-            "⚠ Error" if gr.error else "OK",
-        ]
+        bg = C_ALT if r % 2 == 0 else "FFFFFF"
+        if has_db:
+            nombre = student_db.get(str(gr.folio), "")
+            row_data = [
+                gr.folio, nombre, gr.grado or "?", gr.grupo or "?",
+                gr.score, gr.total, gr.percentage,
+                gr.sk_average if gr.sk_average is not None else "N/A",
+                round(gr.confidence * 100, 0),
+                "⚠ Error" if gr.error else "OK",
+            ]
+        else:
+            row_data = [
+                gr.folio, gr.grado or "?", gr.grupo or "?",
+                gr.score, gr.total, gr.percentage,
+                gr.sk_average if gr.sk_average is not None else "N/A",
+                round(gr.confidence * 100, 0),
+                "⚠ Error" if gr.error else "OK",
+            ]
         for col, val in enumerate(row_data, 1):
             cell = ws.cell(row=r, column=col, value=val)
             cell.font      = Font(name="Arial", size=10)
@@ -90,27 +112,32 @@ def _summary(wb, results, exam_name):
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border    = _border()
 
-        # Color-code percentage column (col 6)
-        pct_cell = ws.cell(row=r, column=6)
+        # Yellow Nombre cell when folio not found in db
+        if has_db and not student_db.get(str(gr.folio)):
+            ws.cell(row=r, column=2).fill = PatternFill("solid", fgColor=C_YELLOW)
+
+        # Color-code percentage column
+        pct_cell = ws.cell(row=r, column=pct_col)
         pct_cell.fill = PatternFill("solid",
                         fgColor=C_GREEN if gr.percentage >= 70 else C_RED)
 
     last = 4 + len(results)
+    pct_letter = get_column_letter(pct_col)
     sr   = last + 2
     ws.cell(row=sr, column=1, value="Estadísticas").font = Font(bold=True, name="Arial")
     for i, (lbl, fml) in enumerate([
-        ("Promedio",         f"=AVERAGE(F5:F{last})"),
-        ("Máximo",           f"=MAX(F5:F{last})"),
-        ("Mínimo",           f"=MIN(F5:F{last})"),
-        ("Aprobados (≥70%)", f'=COUNTIF(F5:F{last},">=70")'),
+        ("Promedio",         f"=AVERAGE({pct_letter}5:{pct_letter}{last})"),
+        ("Máximo",           f"=MAX({pct_letter}5:{pct_letter}{last})"),
+        ("Mínimo",           f"=MIN({pct_letter}5:{pct_letter}{last})"),
+        ("Aprobados (≥70%)", f'=COUNTIF({pct_letter}5:{pct_letter}{last},">=70")'),
     ]):
         ws.cell(row=sr+1+i, column=1, value=lbl).font = Font(bold=True, name="Arial", size=10)
         ws.cell(row=sr+1+i, column=2, value=fml).font = Font(name="Arial", size=10)
 
-    for col, w in enumerate([8,8,8,10,8,16,14,18,14,10], 1):
+    for col, w in enumerate(col_widths, 1):
         _cw(ws, col, w)
 
-    ws.conditional_formatting.add(f"F5:F{last}", ColorScaleRule(
+    ws.conditional_formatting.add(f"{pct_letter}5:{pct_letter}{last}", ColorScaleRule(
         start_type="num", start_value=0,   start_color="E74C3C",
         mid_type="num",   mid_value=70,    mid_color="F39C12",
         end_type="num",   end_value=100,   end_color="2ECC71",
@@ -176,41 +203,65 @@ def _detail(wb, results, answer_key):
         _cw(ws, col, w)
 
 
-def _sk_sheet(wb, results):
+def _sk_sheet(wb, results, student_db=None):
     ws = wb.create_sheet("Autoconocimiento")
     ws.sheet_view.showGridLines = False
 
-    ws.merge_cells("A1:N1")
+    has_db  = student_db is not None
+    sk_off  = 4 if has_db else 4   # SK1 starts at col 4 (same either way: Folio,Nombre?,Grado,Grupo)
+    avg_col = 15 if has_db else 14
+    n_cols  = avg_col
+    ws.merge_cells(f"A1:{get_column_letter(n_cols)}1")
     ws["A1"].value = "Sección 2 — Autoconocimiento"
     ws["A1"].font  = Font(bold=True, size=13, color=C_HDR_FG, name="Arial")
     ws["A1"].fill  = PatternFill("solid", fgColor=C_HDR_BG)
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 28
 
-    headers = ["Folio","Grado","Grupo"] + \
-              [f"SK{i}" for i in range(1,11)] + ["Promedio"]
+    if has_db:
+        headers = ["Folio","Nombre","Grado","Grupo"] + \
+                  [f"SK{i}" for i in range(1,11)] + ["Promedio"]
+        sk_off  = 5
+        avg_col = 15
+        meta_widths = [8,22,8,8]
+    else:
+        headers = ["Folio","Grado","Grupo"] + \
+                  [f"SK{i}" for i in range(1,11)] + ["Promedio"]
+        sk_off  = 4
+        avg_col = 14
+        meta_widths = [8,8,8]
+
     for col, h in enumerate(headers, 1):
         _hdr(ws.cell(row=2, column=col, value=h), bg=C_ACCENT)
 
+    C_YELLOW = "FFF3CD"
     for r, gr in enumerate(results, 3):
         bg = C_ALT if r % 2 == 0 else "FFFFFF"
-        for col, val in enumerate([gr.folio, gr.grado or "?", gr.grupo or "?"], 1):
+        if has_db:
+            nombre = student_db.get(str(gr.folio), "")
+            meta   = [gr.folio, nombre, gr.grado or "?", gr.grupo or "?"]
+        else:
+            meta   = [gr.folio, gr.grado or "?", gr.grupo or "?"]
+        for col, val in enumerate(meta, 1):
             cell = ws.cell(row=r, column=col, value=val)
             cell.font = Font(name="Arial", size=10)
             cell.fill = PatternFill("solid", fgColor=bg)
             cell.alignment = Alignment(horizontal="center")
+        if has_db and not student_db.get(str(gr.folio)):
+            ws.cell(row=r, column=2).fill = PatternFill("solid", fgColor=C_YELLOW)
+
         for i, val in enumerate(gr.sk_answers):
-            cell = ws.cell(row=r, column=i+4,
+            cell = ws.cell(row=r, column=sk_off + i,
                            value=val if val is not None else "-")
             cell.alignment = Alignment(horizontal="center")
             cell.font = Font(name="Arial", size=10)
             cell.fill = PatternFill("solid", fgColor=bg)
-        avg = ws.cell(row=r, column=14,
+        avg = ws.cell(row=r, column=avg_col,
                       value=gr.sk_average if gr.sk_average else "-")
         avg.alignment = Alignment(horizontal="center")
         avg.font = Font(name="Arial", size=10, bold=True)
 
-    for col, w in enumerate([8,8,8]+[7]*10+[10], 1):
+    for col, w in enumerate(meta_widths + [7]*10 + [10], 1):
         _cw(ws, col, w)
 
 
@@ -341,23 +392,37 @@ def read_session_from_excel(excel_path):
     answer_key = read_answer_key_from_excel(excel_path) or []
     n_q        = len(answer_key)
 
-    # Resumen sheet → base student data
+    # Resumen sheet → base student data (header-based to handle Nombre column presence)
     resumen = {}
     if "Resumen" in wb.sheetnames:
-        for row in wb["Resumen"].iter_rows(min_row=5, values_only=True):
+        ws_res  = wb["Resumen"]
+        hdr_row = [cell.value for cell in ws_res[4]]
+        col_idx = {str(h): i for i, h in enumerate(hdr_row) if h is not None}
+        def _rc(row, key, default=None):
+            i = col_idx.get(key)
+            return row[i] if i is not None and i < len(row) else default
+        for row in ws_res.iter_rows(min_row=5, values_only=True):
             if row[0] is None:
                 break
             folio = str(row[0])
+            grado_val = _rc(row, "Grado")
+            grupo_val = _rc(row, "Grupo")
+            score_val = _rc(row, "Puntaje", 0)
+            total_val = _rc(row, "Total", n_q)
+            pct_val   = _rc(row, "Porcentaje (%)", 0.0)
+            sk_val    = _rc(row, "Prom. Autoconoc.")
+            conf_val  = _rc(row, "Confianza (%)", 0)
+            err_val   = _rc(row, "Estado")
             resumen[folio] = {
                 "folio":      folio,
-                "grado":      str(row[1]) if row[1] else None,
-                "grupo":      str(row[2]) if row[2] else None,
-                "score":      row[3] or 0,
-                "total":      row[4] or n_q,
-                "percentage": row[5] or 0.0,
-                "sk_average": row[7] if row[7] not in (None, "N/A") else None,
-                "confidence": (row[8] or 0) / 100,
-                "error":      str(row[9]) if row[9] and row[9] != "OK" else None,
+                "grado":      str(grado_val) if grado_val else None,
+                "grupo":      str(grupo_val) if grupo_val else None,
+                "score":      score_val or 0,
+                "total":      total_val or n_q,
+                "percentage": pct_val or 0.0,
+                "sk_average": sk_val if sk_val not in (None, "N/A") else None,
+                "confidence": (conf_val or 0) / 100,
+                "error":      str(err_val) if err_val and str(err_val) != "OK" else None,
             }
 
     # Detalle Preguntas → page_num + mc_answers

@@ -58,8 +58,9 @@ class OMRApp(tk.Tk):
         self.rescan_page_var   = tk.IntVar(value=1)
 
         # Session state — populated after grading or loading from Excel
-        self.session = None   # dict: pdf_path, out_path, exam_name,
-                              #       answer_key, n_questions, graded
+        self.session    = None   # dict: pdf_path, out_path, exam_name,
+                                 #       answer_key, n_questions, graded
+        self.student_db = {}     # folio str → nombre str
 
         self._build_ui()
 
@@ -152,12 +153,13 @@ class OMRApp(tk.Tk):
         left_canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
         # ── Right panel ────────────────────────────────────────────────────────
-        right = tk.Frame(main, bg=BG, width=290)
+        right = tk.Frame(main, bg=BG, width=360)
         right.pack(side="right", fill="y")
         right.pack_propagate(False)
 
         self._card(left, "Configuración del Examen", self._build_settings)
         self._card(left, "Archivo PDF Escaneado",    self._build_pdf_zone)
+        self._card(left, "Lista de Alumnos",         self._build_student_db)
         self._card(left, "Clave de Respuestas",      self._build_answer_key)
         self._build_actions(left)
         self._build_progress(left)
@@ -213,6 +215,46 @@ class OMRApp(tk.Tk):
         self.drop_label.pack(pady=10)
         self.drop_frame.bind("<Button-1>", lambda e: self._browse_pdf())
         self.drop_label.bind("<Button-1>", lambda e: self._browse_pdf())
+
+    def _build_student_db(self, f):
+        row = tk.Frame(f, bg=CARD); row.pack(fill="x", pady=2)
+        self._student_db_label = tk.Label(
+            row, text="Sin lista cargada", bg=CARD, fg=FG2, font=("Arial", 9))
+        self._student_db_label.pack(side="left", expand=True, anchor="w")
+        self._btn(row, "Cargar Excel", self._browse_student_db, ACCENT)
+
+    def _browse_student_db(self):
+        path = filedialog.askopenfilename(
+            title="Seleccionar lista de alumnos (Excel)",
+            filetypes=[("Excel", "*.xlsx *.xls")])
+        if not path:
+            return
+        try:
+            from openpyxl import load_workbook
+            wb = load_workbook(path, data_only=True)
+            ws = wb.active
+            db = {}
+            for row in ws.iter_rows(values_only=True):
+                if not row or row[0] is None:
+                    continue
+                folio_val  = row[0]
+                nombre_val = row[1] if len(row) > 1 else None
+                if nombre_val is None:
+                    continue
+                if isinstance(folio_val, (int, float)):
+                    folio_str = str(int(folio_val))
+                else:
+                    folio_str = str(folio_val).strip()
+                if folio_str.lower() in ("folio", ""):
+                    continue  # skip header row
+                db[folio_str] = str(nombre_val).strip()
+            self.student_db = db
+            self._student_db_label.configure(
+                text=f"{len(db)} alumno{'s' if len(db) != 1 else ''} cargados",
+                fg=SUCCESS)
+            self._log(f"Lista de alumnos: {len(db)} registros cargados")
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo leer la lista:\n{e}")
 
     def _build_answer_key(self, f):
         ctrl = tk.Frame(f, bg=CARD)
@@ -335,14 +377,14 @@ class OMRApp(tk.Tk):
                  font=("Arial", 11, "bold")).pack(anchor="w", padx=10, pady=(6, 4))
 
         # Treeview
-        cols = ("page", "folio", "grado", "grupo", "score", "pct", "status")
+        cols = ("page", "folio", "nombre", "grado", "grupo", "score", "pct", "status")
         tf   = tk.Frame(f, bg=BG)
         tf.pack(fill="both", expand=True, padx=4)
 
         self.results_tree = ttk.Treeview(tf, columns=cols, show="headings",
                                          height=22, selectmode="browse")
-        col_cfg = [("Pág.", 35), ("Folio", 42), ("Gdo.", 32), ("Grp.", 32),
-                   ("Punt.", 38), ("%", 36), ("Estado", 48)]
+        col_cfg = [("Pág.", 32), ("Folio", 38), ("Nombre", 80), ("Gdo.", 28),
+                   ("Grp.", 28), ("Punt.", 36), ("%", 34), ("Estado", 46)]
         for col, (hdr, w) in zip(cols, col_cfg):
             self.results_tree.heading(col, text=hdr)
             self.results_tree.column(col, width=w, anchor="center", stretch=False)
@@ -410,8 +452,9 @@ class OMRApp(tk.Tk):
         for gr in self.session["graded"]:
             status = "ERROR" if gr.error else ("OK" if gr.percentage >= 70 else "")
             tag    = "err" if gr.error else ("ok" if gr.percentage >= 70 else "low")
+            nombre = self.student_db.get(str(gr.folio), "")
             self.results_tree.insert("", "end", iid=str(gr.page_num),
-                values=(gr.page_num, gr.folio, gr.grado or "?",
+                values=(gr.page_num, gr.folio, nombre, gr.grado or "?",
                         gr.grupo or "?", f"{gr.score}/{gr.total}",
                         f"{gr.percentage}%", status),
                 tags=(tag,))
@@ -493,7 +536,8 @@ class OMRApp(tk.Tk):
 
             self.progress_var.set(90)
             self.status_var.set("Exportando Excel...")
-            export_to_excel(graded, answer_key, exam_name, out_path)
+            export_to_excel(graded, answer_key, exam_name, out_path,
+                            student_db=self.student_db or None)
 
             # Store session for re-scan
             self.session = {"pdf_path":    pdf_path,
@@ -546,7 +590,8 @@ class OMRApp(tk.Tk):
                 graded.append(new_graded)
                 graded.sort(key=lambda g: g.page_num)
 
-            export_to_excel(graded, s["answer_key"], s["exam_name"], s["out_path"])
+            export_to_excel(graded, s["answer_key"], s["exam_name"], s["out_path"],
+                            student_db=self.student_db or None)
 
             self.status_var.set(
                 f"Re-scan completo — Folio {new_graded.folio} "

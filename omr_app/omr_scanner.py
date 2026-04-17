@@ -58,31 +58,57 @@ def _preprocess(img_rgb):
 
 
 def _find_corners(thresh, shape):
+    """
+    For each corner quadrant pick the largest-area square-ish contour.
+    The real corner markers are always the biggest dark squares in their quadrant.
+    """
     h, w = shape[:2]
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL,
                                    cv2.CHAIN_APPROX_SIMPLE)
-    markers = []
+    quad = {'tl': [], 'tr': [], 'bl': [], 'br': []}
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if 80 < area < 2500:
-            x, y, cw, ch = cv2.boundingRect(cnt)
-            if 0.5 < cw / max(ch, 1) < 2.0:
-                cx, cy = x + cw//2, y + ch//2
-                if ((cx < w*0.22 or cx > w*0.78) and
-                        (cy < h*0.22 or cy > h*0.78)):
-                    markers.append((cx, cy))
-    if len(markers) < 4:
-        return None
-    markers = sorted(markers, key=lambda p: (p[1], p[0]))
-    top = sorted(markers[:2], key=lambda p: p[0])
-    bot = sorted(markers[2:], key=lambda p: p[0])
-    return [top[0], top[1], bot[0], bot[1]]
+        if area < 40:
+            continue
+        bx, by, cw, ch = cv2.boundingRect(cnt)
+        if not (0.35 < cw / max(ch, 1) < 2.8):
+            continue
+        cx, cy = bx + cw // 2, by + ch // 2
+        in_l = cx < w * 0.30
+        in_r = cx > w * 0.70
+        in_t = cy < h * 0.30
+        in_b = cy > h * 0.70
+        if in_l and in_t:
+            quad['tl'].append((cx, cy, area))
+        if in_r and in_t:
+            quad['tr'].append((cx, cy, area))
+        if in_l and in_b:
+            quad['bl'].append((cx, cy, area))
+        if in_r and in_b:
+            quad['br'].append((cx, cy, area))
+
+    corners = []
+    for key in ('tl', 'tr', 'bl', 'br'):
+        if not quad[key]:
+            return None
+        best = max(quad[key], key=lambda c: c[2])
+        corners.append((best[0], best[1]))
+    return corners  # [tl, tr, bl, br]
 
 
 def _warp(img, corners):
     tl, tr, bl, br = corners
     src = np.float32([tl, tr, bl, br])
-    dst = np.float32([[0,0],[WARP_W,0],[0,WARP_H],[WARP_W,WARP_H]])
+    # Map each marker center to its expected pixel position in the full-page
+    # coordinate system so that _pt_to_px() works correctly after the warp.
+    mx = int(MARKER_OFFSET * SCALE_X)
+    my = int(MARKER_OFFSET * SCALE_Y)
+    dst = np.float32([
+        [mx,          my],
+        [WARP_W - mx, my],
+        [mx,          WARP_H - my],
+        [WARP_W - mx, WARP_H - my],
+    ])
     return cv2.warpPerspective(img,
                                cv2.getPerspectiveTransform(src, dst),
                                (WARP_W, WARP_H))
