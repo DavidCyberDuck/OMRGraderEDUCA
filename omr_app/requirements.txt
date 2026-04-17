@@ -1,0 +1,7 @@
+# System dependency (install separately): brew install poppler
+opencv-python
+numpy
+Pillow
+pdf2image
+reportlab
+openpyxl

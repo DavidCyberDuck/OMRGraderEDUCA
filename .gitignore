@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+
+# Claude
+.claude/
+omr_app/.claude/
+
+# Generated output
+omr_app/sample_results.xlsx
+omr_app/sample_sheet.pdf
+
+# Config with personal data
+omr_app/omr_config.json
