@@ -33,18 +33,23 @@ MARKERS = [
     (PAGE_W - MARKER_OFFSET,  PAGE_H - MARKER_OFFSET),
 ]
 
-# ── Logo ──────────────────────────────────────────────────────────────────────
-LOGO_W = 1.8 * inch
-LOGO_H = 38.9
+# ── Logo (left) — Fundación Educa México ──────────────────────────────────────
+# logo.png native size: 3194×959px → aspect 3.331:1
+LOGO_W = 1.1 * inch                    # reduced so Nombre field has room
+LOGO_H = round(LOGO_W / 3.331, 1)     # ≈ 23.8pt, preserves aspect ratio
 LOGO_X = MARGIN_L
 LOGO_Y = PAGE_H - MARKER_OFFSET - MARKER_SIZE/2 - LOGO_H  # top flush with marker top
+
+# ── Logo (right) — ABE ────────────────────────────────────────────────────────
+# ABE_LOGO_W is computed dynamically in sheet_generator from the image aspect ratio
+ABE_LOGO_H = LOGO_H                    # same height as left logo
 
 # ── Exam title — centered on page at logo vertical center ─────────────────────
 TITLE_X = PAGE_W / 2
 TITLE_Y = LOGO_Y + LOGO_H * 0.45
 
 # ── Field row 1: Nombre, Fecha, Escuela (text baselines) ──────────────────────
-FIELDS_Y1 = LOGO_Y - 12
+FIELDS_Y1 = LOGO_Y - 30   # extra gap below logos (~15pt font + padding)
 
 # ── Bubble zone: Grado/Grupo on one row; Folio on two rows (right side) ───────
 # Folio rows (Número 1 and Número 2) define the zone height

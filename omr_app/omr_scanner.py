@@ -185,6 +185,18 @@ def scan_page(img_rgb, num_mc_questions):
     )
 
 
+def scan_single_page_from_pdf(pdf_path, page_num, num_mc_questions):
+    """Re-scan a single page (1-indexed) from a multi-page PDF."""
+    images = convert_from_path(pdf_path, dpi=200,
+                               first_page=page_num, last_page=page_num)
+    if not images:
+        raise ValueError(f"No se pudo leer la página {page_num} del PDF.")
+    img_rgb        = np.array(images[0].convert("RGB"))
+    result         = scan_page(img_rgb, num_mc_questions)
+    result.page_num = page_num
+    return result
+
+
 def scan_pdf(pdf_path, num_mc_questions, progress_callback=None):
     images  = pdf_to_images(pdf_path)
     results = []
