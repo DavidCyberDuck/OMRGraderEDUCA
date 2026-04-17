@@ -58,14 +58,19 @@ omr_app/
 └── requirements.txt
 ```
 
+## Lista de alumnos (opcional)
+
+Carga un archivo Excel con dos columnas — `folio` y `nombre` — para incluir automáticamente el nombre del estudiante en los resultados. Los folios no encontrados aparecen resaltados en amarillo en el Excel exportado.
+
 ## Salida Excel
 
-El archivo generado contiene cuatro hojas:
+El archivo generado contiene cinco hojas:
 
-- **Resumen** — puntaje, calificación y promedio de autoconocimiento por estudiante
+- **Resumen** — folio, nombre, puntaje y promedio de autoconocimiento por estudiante
 - **Detalle Preguntas** — respuesta por pregunta con indicación de acierto o error
 - **Autoconocimiento** — valores de la Sección 2 por estudiante
 - **Gráficas** — gráfica de barras de puntajes y gráfica de línea de autoconocimiento
+- **Clave de Respuestas** — clave configurada para el examen
 
 ## Recomendaciones de escaneo
 
