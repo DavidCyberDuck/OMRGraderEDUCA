@@ -28,25 +28,27 @@ def save_config(cfg):
     with open(CONFIG_FILE, "w") as f:
         json.dump(cfg, f, indent=2)
 
-BG     = "#1E2B3C"
-BG2    = "#253447"
-ACCENT = "#3498DB"
-SUCCESS= "#2ECC71"
-ERROR  = "#E74C3C"
-FG     = "#ECF0F1"
-FG2    = "#BDC3C7"
-CARD   = "#2C3E50"
-PURPLE = "#7D3C98"
+# Day theme — inspired by Fundación Educa México logo
+BG     = "#EEF2F7"   # light blue-gray page background
+BG2    = "#FFFFFF"   # white inputs
+ACCENT = "#2B3990"   # navy blue (logo primary)
+SUCCESS= "#1A7A42"   # muted green
+ERROR  = "#C0392B"   # red
+FG     = "#1A202C"   # near-black text
+FG2    = "#546E7A"   # slate gray secondary text
+CARD   = "#FFFFFF"   # white cards
+PURPLE = "#5E35B1"   # purple (load session)
 
 
 class OMRApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.cfg = load_config()
-        self.title("OMR Grader")
+        self.title("Calificador de Exámenes")
         self.geometry("940x740")
         self.configure(bg=BG)
         self.resizable(True, True)
+        self._apply_theme()
 
         self.pdf_path          = tk.StringVar()
         self.exam_name_var     = tk.StringVar(value=self.cfg["exam_name"])
@@ -61,21 +63,95 @@ class OMRApp(tk.Tk):
 
         self._build_ui()
 
+    # ── Theme ─────────────────────────────────────────────────────────────────
+    def _apply_theme(self):
+        s = ttk.Style(self)
+        s.theme_use("clam")
+
+        s.configure("TNotebook",         background=BG,     borderwidth=0)
+        s.configure("TNotebook.Tab",     background=BG2,    foreground=FG2,
+                    padding=[10, 4],     font=("Arial", 9))
+        s.map("TNotebook.Tab",
+              background=[("selected", ACCENT)],
+              foreground=[("selected", "white")])
+
+        s.configure("Treeview",
+                    background=BG2,     foreground=FG,
+                    fieldbackground=BG2, rowheight=22,
+                    borderwidth=0,       font=("Arial", 9))
+        s.configure("Treeview.Heading",
+                    background=ACCENT,  foreground="white",
+                    font=("Arial", 9, "bold"), relief="flat")
+        s.map("Treeview", background=[("selected", ACCENT)],
+              foreground=[("selected", "white")])
+
+        s.configure("TProgressbar", troughcolor=BG, background=ACCENT,
+                    borderwidth=0)
+        s.configure("TScrollbar",   background=BG2, troughcolor=BG,
+                    borderwidth=0, arrowsize=12)
+
     # ── UI ────────────────────────────────────────────────────────────────────
     def _build_ui(self):
-        hdr = tk.Frame(self, bg=ACCENT, height=52)
+        hdr = tk.Frame(self, bg="white")
         hdr.pack(fill="x")
-        tk.Label(hdr, text="OMR Grader", bg=ACCENT, fg="white",
-                 font=("Arial", 18, "bold")).pack(side="left", padx=20, pady=10)
-        tk.Label(hdr, text="Calificación automática de exámenes",
-                 bg=ACCENT, fg="#D6EAF8",
-                 font=("Arial", 10)).pack(side="left", padx=5, pady=14)
+        tk.Frame(self, bg=ACCENT, height=3).pack(fill="x")   # navy bottom border
+
+        try:
+            from PIL import Image, ImageTk
+            _dir = os.path.dirname(__file__)
+            h = 44
+
+            # Right logo first — must be packed before the center fill widget
+            abe_img = Image.open(os.path.join(_dir, "ABE-logo.png")).convert("RGBA")
+            abe_img = abe_img.resize(
+                (int(abe_img.width * h / abe_img.height), h), Image.LANCZOS)
+            self._abe_photo = ImageTk.PhotoImage(abe_img)
+            tk.Label(hdr, image=self._abe_photo, bg="white").pack(
+                side="right", padx=(0, 12), pady=6)
+
+            # Left logo
+            educa_img = Image.open(os.path.join(_dir, "logo.png")).convert("RGBA")
+            educa_img = educa_img.resize(
+                (int(educa_img.width * h / educa_img.height), h), Image.LANCZOS)
+            self._educa_photo = ImageTk.PhotoImage(educa_img)
+            tk.Label(hdr, image=self._educa_photo, bg="white").pack(
+                side="left", padx=(12, 0), pady=6)
+        except Exception:
+            pass
+
+        # Title — centered in remaining space
+        tk.Label(hdr, text="Calificador de Exámenes", bg="white", fg=ACCENT,
+                 font=("Arial", 18, "bold")).pack(expand=True, pady=10)
 
         main = tk.Frame(self, bg=BG)
         main.pack(fill="both", expand=True, padx=18, pady=14)
 
-        left = tk.Frame(main, bg=BG)
-        left.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        # ── Scrollable left panel ──────────────────────────────────────────────
+        left_outer = tk.Frame(main, bg=BG)
+        left_outer.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+        left_canvas = tk.Canvas(left_outer, bg=BG, highlightthickness=0)
+        left_sb     = ttk.Scrollbar(left_outer, orient="vertical",
+                                    command=left_canvas.yview)
+        left_canvas.configure(yscrollcommand=left_sb.set)
+        left_sb.pack(side="right", fill="y")
+        left_canvas.pack(side="left", fill="both", expand=True)
+
+        left = tk.Frame(left_canvas, bg=BG)
+        win  = left_canvas.create_window((0, 0), window=left, anchor="nw")
+
+        def _on_frame_resize(e):
+            left_canvas.configure(scrollregion=left_canvas.bbox("all"))
+        def _on_canvas_resize(e):
+            left_canvas.itemconfig(win, width=e.width)
+        def _on_mousewheel(e):
+            left_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        left.bind("<Configure>", _on_frame_resize)
+        left_canvas.bind("<Configure>", _on_canvas_resize)
+        left_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        # ── Right panel ────────────────────────────────────────────────────────
         right = tk.Frame(main, bg=BG, width=290)
         right.pack(side="right", fill="y")
         right.pack_propagate(False)
@@ -116,6 +192,9 @@ class OMRApp(tk.Tk):
         self.spinbox.pack(side="left", padx=(6, 0))
         self.spinbox.bind("<FocusOut>", lambda e: self._safe_rebuild())
         self.spinbox.bind("<Return>",   lambda e: self._safe_rebuild())
+
+        r3 = tk.Frame(f, bg=CARD); r3.pack(fill="x", pady=(6, 0))
+        self._btn(r3, "Generar Hoja OMR", self._generate_sheet, ACCENT)
 
     def _safe_rebuild(self):
         try:
@@ -204,9 +283,8 @@ class OMRApp(tk.Tk):
 
     def _build_actions(self, f):
         bf = tk.Frame(f, bg=BG); bf.pack(fill="x", pady=4)
-        self._btn(bf, "Generar Hoja OMR",   self._generate_sheet, ACCENT)
-        self._btn(bf, "Calificar PDF",       self._start_grading,  SUCCESS)
-        self._btn(bf, "Cargar sesión previa",self._load_session,   PURPLE)
+        self._btn(bf, "Calificar PDF",        self._start_grading, SUCCESS)
+        self._btn(bf, "Cargar sesión previa", self._load_session,  PURPLE)
 
     def _btn(self, parent, text, cmd, color):
         """Frame+Label button — macOS respects bg/fg on these unlike tk.Button."""
@@ -243,14 +321,14 @@ class OMRApp(tk.Tk):
     def _build_log_tab(self, f):
         tk.Label(f, text="Registro", bg=BG, fg=ACCENT,
                  font=("Arial", 11, "bold")).pack(anchor="w", padx=10, pady=(6, 4))
-        self.log_box = tk.Text(f, bg=CARD, fg=FG2, font=("Courier", 8),
+        self.log_box = tk.Text(f, bg=BG, fg=FG, font=("Courier", 8),
                                bd=0, state="disabled", wrap="word")
         sb = ttk.Scrollbar(f, command=self.log_box.yview)
         sb.pack(fill="y", side="right")
         self.log_box.pack(fill="both", expand=True, padx=(8, 0))
         self.log_box.configure(yscrollcommand=sb.set)
         tk.Label(f, text="─" * 44, bg=BG, fg=BG2).pack()
-        self._btn(f, "Limpiar", self._clear_log, "#555")
+        self._btn(f, "Limpiar", self._clear_log, FG2)
 
     def _build_results_tab(self, f):
         tk.Label(f, text="Resultados", bg=BG, fg=ACCENT,
@@ -337,9 +415,9 @@ class OMRApp(tk.Tk):
                         gr.grupo or "?", f"{gr.score}/{gr.total}",
                         f"{gr.percentage}%", status),
                 tags=(tag,))
-        self.results_tree.tag_configure("ok",  background="#1A4731", foreground=FG)
-        self.results_tree.tag_configure("low", background="#4A2020", foreground=FG)
-        self.results_tree.tag_configure("err", background="#5D2A00", foreground=FG)
+        self.results_tree.tag_configure("ok",  background="#D4EDDA", foreground="#155724")
+        self.results_tree.tag_configure("low", background="#F8D7DA", foreground="#721C24")
+        self.results_tree.tag_configure("err", background="#FFF3CD", foreground="#856404")
         self.right_nb.select(1)   # switch to Resultados tab
 
     def _on_tree_select(self, event):
