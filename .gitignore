@@ -16,3 +16,6 @@ omr_app/sample_sheet.pdf
 
 # Config with personal data
 omr_app/omr_config.json
+
+# Internal dev notes
+omr_app/omr_session_summary.md
