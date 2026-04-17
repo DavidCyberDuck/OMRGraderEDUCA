@@ -136,6 +136,14 @@ class OMRApp(tk.Tk):
         self.drop_label.bind("<Button-1>", lambda e: self._browse_pdf())
 
     def _build_answer_key(self, f):
+        ctrl = tk.Frame(f, bg=CARD)
+        ctrl.pack(fill="x", pady=(0, 6))
+        reset = tk.Label(ctrl, text="Resetear a A", bg=ERROR, fg="white",
+                         font=("Arial", 8, "bold"), cursor="hand2",
+                         padx=8, pady=3)
+        reset.pack(side="right")
+        reset.bind("<Button-1>", lambda e: self._reset_answer_key())
+
         self.key_frame = tk.Frame(f, bg=CARD)
         self.key_frame.pack(fill="x")
         self._rebuild_answer_key()
@@ -145,21 +153,54 @@ class OMRApp(tk.Tk):
             w.destroy()
         n = self.num_questions_var.get()
         self.answer_vars = []
+        self._key_btns  = []
         cols = 5
+
         for i in range(n):
             row = i // cols; col = i % cols
             sub = tk.Frame(self.key_frame, bg=CARD)
             sub.grid(row=row, column=col, padx=4, pady=3)
             tk.Label(sub, text=f"{i+1}", bg=CARD, fg=FG2,
                      font=("Arial", 7)).pack()
+
             var = tk.StringVar(value="A")
             if i < len(self.cfg.get("answer_key", [])):
                 var.set(self.cfg["answer_key"][i])
-            ttk.Combobox(sub, textvariable=var,
-                         values=["A", "B", "C", "D"],
-                         width=3, state="readonly",
-                         font=("Arial", 9)).pack()
+
+            btn_row = tk.Frame(sub, bg=CARD)
+            btn_row.pack()
+            btns = {}
+            for ch in ["A", "B", "C", "D"]:
+                b = tk.Label(btn_row, text=ch, width=2,
+                             font=("Arial", 8, "bold"), cursor="hand2",
+                             padx=2, pady=2, relief="flat")
+                b.pack(side="left", padx=1)
+                btns[ch] = b
+
+            def _make_select(v, bd, choice):
+                def select(e=None):
+                    v.set(choice)
+                    for c, b in bd.items():
+                        b.configure(bg=ACCENT if c == choice else BG2,
+                                    fg="white" if c == choice else FG2)
+                return select
+
+            current = var.get()
+            for ch, b in btns.items():
+                b.configure(bg=ACCENT if ch == current else BG2,
+                            fg="white" if ch == current else FG2)
+                b.bind("<Button-1>", _make_select(var, btns, ch))
+
             self.answer_vars.append(var)
+            self._key_btns.append(btns)
+
+    def _reset_answer_key(self):
+        for var in self.answer_vars:
+            var.set("A")
+        for btns in self._key_btns:
+            for ch, b in btns.items():
+                b.configure(bg=ACCENT if ch == "A" else BG2,
+                            fg="white" if ch == "A" else FG2)
 
     def _build_actions(self, f):
         bf = tk.Frame(f, bg=BG); bf.pack(fill="x", pady=4)
@@ -168,10 +209,15 @@ class OMRApp(tk.Tk):
         self._btn(bf, "Cargar sesión previa",self._load_session,   PURPLE)
 
     def _btn(self, parent, text, cmd, color):
-        tk.Button(parent, text=text, command=cmd, bg=color, fg="white",
-                  font=("Arial", 10, "bold"), bd=0, padx=14, pady=8,
-                  activebackground=color, cursor="hand2",
-                  relief="flat").pack(side="left", padx=(0, 8))
+        """Frame+Label button — macOS respects bg/fg on these unlike tk.Button."""
+        f = tk.Frame(parent, bg=color, cursor="hand2")
+        f.pack(side="left", padx=(0, 8))
+        lbl = tk.Label(f, text=text, bg=color, fg="white",
+                       font=("Arial", 10, "bold"), cursor="hand2",
+                       padx=14, pady=8)
+        lbl.pack()
+        for w in (f, lbl):
+            w.bind("<Button-1>", lambda e, c=cmd: c())
 
     def _build_progress(self, f):
         pf = tk.Frame(f, bg=BG); pf.pack(fill="x", pady=(6, 0))
