@@ -1,92 +1,74 @@
-# OMR Grader
+# Calificador OMR
 
-Aplicación de escritorio para calificar exámenes automáticamente usando hojas OMR escaneadas en PDF.
+Aplicación de escritorio para generar, escanear y calificar hojas de respuestas OMR. Procesa PDFs escaneados con múltiples estudiantes y exporta los resultados a Excel.
 
-## Características
+## Requisitos del sistema
 
-- 📋 **Genera hojas OMR** listas para imprimir (Sección 1: opción múltiple, Sección 2: autoconocimiento)
-- 📂 **Procesa PDFs escaneados** con múltiples estudiantes por archivo
-- 🗝 **Clave de respuestas configurable** y número de preguntas ajustable (hasta 40)
-- 📊 **Exporta a Excel** con tabla de resultados, detalle por pregunta, autoconocimiento y gráficas
-
-## Requisitos
-
-```bash
-pip install opencv-python numpy Pillow pdf2image reportlab openpyxl
-```
-
-También necesitas **poppler** para pdf2image:
-- **Windows**: Descargar desde https://github.com/oschwartz10612/poppler-windows y agregar al PATH
-- **macOS**: `brew install poppler`
-- **Linux**: `sudo apt install poppler-utils`
+- Python 3.10 o superior
+- poppler (requerido por pdf2image)
+  - macOS: `brew install poppler`
+  - Windows: descargar desde https://github.com/oschwartz10612/poppler-windows y agregar la carpeta `bin/` al PATH
+  - Linux: `sudo apt install poppler-utils`
 
 ## Instalación
 
 ```bash
-git clone <repo>
-cd omr_grader
-pip install -r requirements.txt
-python main.py
+git clone https://github.com/DavidCyberDuck/OMRGraderEDUCA.git
+cd OMRGraderEDUCA
+python install.py
+```
+
+El script `install.py` instala poppler y las dependencias de Python automáticamente.
+
+Para instalar solo las dependencias de Python:
+
+```bash
+pip install -r omr_app/requirements.txt
 ```
 
 ## Uso
 
-### 1. Generar hojas OMR
-1. Abre la app: `python main.py`
-2. Configura el nombre del examen y número de preguntas (Sección 1)
-3. Clic en **"Generar Hoja OMR"** → guarda el PDF
-4. Imprime las hojas para los estudiantes
+```bash
+python omr_app/main.py
+```
 
-### 2. Calificar exámenes
+### Generar hojas OMR
+
+1. Configurar el nombre del examen y el número de preguntas de la Sección 1
+2. Hacer clic en "Generar Hoja OMR" y guardar el PDF
+3. Imprimir las hojas para los estudiantes
+
+### Calificar exámenes
+
 1. Los estudiantes rellenan sus hojas con lápiz o bolígrafo negro
-2. Escanea todas las hojas en un solo PDF (una página por estudiante)
-3. En la app, selecciona el PDF escaneado
-4. Configura la clave de respuestas (menús desplegables A/B/C/D)
-5. Clic en **"Calificar PDF"** y elige dónde guardar el Excel
-6. ¡Listo! El Excel tendrá resultados, detalle y gráficas
+2. Escanear todas las hojas en un solo PDF (una página por estudiante, mínimo 200 dpi)
+3. En la aplicación, seleccionar el PDF escaneado y configurar la clave de respuestas
+4. Hacer clic en "Calificar PDF" y elegir la carpeta de destino para el Excel
 
 ## Estructura del proyecto
 
 ```
 omr_app/
-├── main.py              # GUI principal (Tkinter)
-├── sheet_generator.py   # Genera PDFs con hojas OMR
-├── omr_scanner.py       # Detecta burbujas en imágenes
-├── omr_grader.py        # Califica respuestas
-├── omr_exporter.py      # Exporta resultados a Excel
-├── omr_config.json      # Configuración guardada automáticamente
-└── README.md
+├── main.py              # Interfaz gráfica (Tkinter)
+├── layout.py            # Coordenadas de la hoja (fuente única de verdad)
+├── sheet_generator.py   # Generación de PDFs
+├── omr_scanner.py       # Detección de burbujas con OpenCV
+├── omr_grader.py        # Calificación de respuestas
+├── omr_exporter.py      # Exportación a Excel
+└── requirements.txt
 ```
-
-## Hoja OMR — Estructura
-
-```
-┌─────────────────────────────────────┐
-│  [■] Nombre: _______  Fecha: _____  [■]
-│                              ID Est.
-│  Sección 1 (opción múltiple)  [D][U]
-│  1. ( )A ( )B ( )C ( )D      [0][0]
-│  2. ( )A ( )B ( )C ( )D      [1][1]
-│  ...                          ...
-│  ─────────────────────────────────  │
-│  Sección 2 (autoconocimiento)       │
-│  1. ( )1 ( )2 ( )3 ( )4 ( )5       │
-│  ...                                │
-│  [■]                            [■] │
-└─────────────────────────────────────┘
-```
-
-## Consejos para mejores resultados
-
-- Usar lápiz o bolígrafo negro, rellenar completamente el círculo
-- Escanear a 200 dpi mínimo, en blanco y negro o escala de grises
-- Asegurarse de que la hoja esté recta en el escáner
-- Evitar arrugar o doblar las hojas antes de escanear
 
 ## Salida Excel
 
-El archivo Excel generado contiene 4 hojas:
-1. **Resumen** — tabla de todos los estudiantes con puntaje, calificación letra y promedio de autoconocimiento
-2. **Detalle Preguntas** — respuesta por pregunta de cada estudiante, con colores verde/rojo
-3. **Autoconocimiento** — valores de la Sección 2 por estudiante
-4. **Gráficas** — gráfica de barras de puntajes y gráfica de línea de autoconocimiento
+El archivo generado contiene cuatro hojas:
+
+- **Resumen** — puntaje, calificación y promedio de autoconocimiento por estudiante
+- **Detalle Preguntas** — respuesta por pregunta con indicación de acierto o error
+- **Autoconocimiento** — valores de la Sección 2 por estudiante
+- **Gráficas** — gráfica de barras de puntajes y gráfica de línea de autoconocimiento
+
+## Recomendaciones de escaneo
+
+- Rellenar los círculos completamente con lápiz o bolígrafo negro
+- Escanear a 200 dpi como mínimo, en blanco y negro o escala de grises
+- Colocar la hoja recta en el escáner, sin dobleces ni arrugas
