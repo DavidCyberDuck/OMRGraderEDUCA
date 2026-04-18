@@ -130,8 +130,43 @@ Write-Host "================================"
 Write-Host ""
 Write-Host "Verificando actualizaciones..."
 
-`$gitOk = (`$null -ne (Get-Command git -ErrorAction SilentlyContinue)) -and (Test-Path ".git")
-if (`$gitOk) {
+`$gitInstalled = `$null -ne (Get-Command git -ErrorAction SilentlyContinue)
+`$isRepo       = Test-Path ".git"
+
+if (-not `$gitInstalled) {
+    Write-Host "  Git no esta instalado."
+    `$resp = Read-Host "  Instalar Git para recibir actualizaciones automaticas? (s/n)"
+    if (`$resp -match '^[sSyY]') {
+        `$winget = `$null -ne (Get-Command winget -ErrorAction SilentlyContinue)
+        `$choco  = `$null -ne (Get-Command choco  -ErrorAction SilentlyContinue)
+        if (`$winget) {
+            winget install --id Git.Git -e --silent
+        } elseif (`$choco) {
+            choco install git -y
+        } else {
+            Write-Host "  No se encontro winget ni chocolatey."
+            Write-Host "  Descarga Git manualmente desde https://git-scm.com/download/win"
+            Start-Process "https://git-scm.com/download/win"
+        }
+        Write-Host "  Reinicia el lanzador para activar actualizaciones."
+    } else {
+        Write-Host "  De acuerdo, continuando sin Git."
+    }
+} elseif (-not `$isRepo) {
+    Write-Host "  (Sin repositorio git -- descarga ZIP detectada)"
+    `$resp = Read-Host "  Convertir en repositorio git para recibir actualizaciones? (s/n)"
+    if (`$resp -match '^[sSyY]') {
+        try {
+            git clone --no-checkout https://github.com/DavidCyberDuck/OMRGraderEDUCA.git .git_tmp 2>`$null
+            Move-Item .git_tmp\.git .git
+            Remove-Item .git_tmp -Recurse -Force
+            git reset HEAD --quiet
+            Write-Host "  Repositorio configurado. Reinicia el lanzador para activar actualizaciones."
+        } catch {
+            Write-Host "  No se pudo configurar el repositorio: `$_"
+        }
+    }
+} else {
     try {
         git fetch origin main --quiet 2>`$null
         `$behind = [int](git rev-list HEAD..origin/main --count 2>`$null)
@@ -146,8 +181,6 @@ if (`$gitOk) {
     } catch {
         Write-Host "  Sin conexion -- omitiendo verificacion."
     }
-} else {
-    Write-Host "  (Sin repositorio git -- descarga ZIP detectada)"
 }
 
 Write-Host ""
