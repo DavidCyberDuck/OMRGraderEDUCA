@@ -75,11 +75,11 @@ GRUPO_VALUES  = ["A", "B", "C", "D", "E", "F"]
 def grupo_bubble_x(idx):
     return GRUPO_B1_X + idx * BUBBLE_SP_X
 
-# Folio bubbles: 2 rows × 9 options (1–9)
+# Folio bubbles: 2 rows × 10 options (0–9)
 FOLIO_LABEL_X = GRUPO_B1_X + (len(GRUPO_VALUES) - 1) * BUBBLE_SP_X + BUBBLE_R + 12
 FOLIO_B1_X    = FOLIO_LABEL_X + 52   # first bubble center x
-FOLIO_SP_X    = 19                    # tighter spacing for 9 bubbles
-FOLIO_VALUES  = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+FOLIO_SP_X    = 17                    # tighter spacing for 10 bubbles
+FOLIO_VALUES  = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
 def folio_bubble_x(idx):
     return FOLIO_B1_X + idx * FOLIO_SP_X
