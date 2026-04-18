@@ -97,11 +97,38 @@ echo "    ✓ Librerías instaladas"
 
 # ── Create launcher ────────────────────────────────────────────────────────────
 LAUNCHER="Abrir Calificador.command"
-cat > "$LAUNCHER" <<EOF
+cat > "$LAUNCHER" <<LAUNCHEREOF
 #!/bin/bash
 cd "\$(dirname "\$BASH_SOURCE")"
+
+echo ""
+echo "================================"
+echo "  Calificador OMR"
+echo "================================"
+echo ""
+echo "Verificando actualizaciones..."
+
+if command -v git &>/dev/null && [ -d ".git" ]; then
+    if git fetch origin main --quiet 2>/dev/null; then
+        BEHIND=\$(git rev-list HEAD..origin/main --count 2>/dev/null || echo 0)
+        if [ "\$BEHIND" -gt "0" ]; then
+            echo "  \$BEHIND actualización(es) disponible(s). Actualizando..."
+            git pull origin main --quiet
+            $PYTHON -m pip install -r omr_app/requirements.txt --quiet
+            echo "  Actualizado correctamente."
+        else
+            echo "  Ya tienes la versión más reciente."
+        fi
+    else
+        echo "  Sin conexión — omitiendo verificación."
+    fi
+else
+    echo "  (Sin repositorio git — descarga ZIP detectada)"
+fi
+
+echo ""
 $PYTHON omr_app/main.py
-EOF
+LAUNCHEREOF
 chmod +x "$LAUNCHER"
 echo ""
 echo "    ✓ Lanzador creado: '$LAUNCHER'"

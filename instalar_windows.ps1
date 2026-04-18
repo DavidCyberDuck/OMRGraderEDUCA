@@ -117,15 +117,52 @@ Write-Host "    OK  Librerias instaladas"
 Write-Host ""
 Write-Host "Creando lanzador..."
 
-$launcher = "Abrir Calificador.bat"
+$pyExe = $PYTHON   # bake the detected python path into the launcher
+
+$launcherPs1 = "Abrir Calificador.ps1"
+@"
+Set-Location `$PSScriptRoot
+
+Write-Host ""
+Write-Host "================================"
+Write-Host "  Calificador OMR"
+Write-Host "================================"
+Write-Host ""
+Write-Host "Verificando actualizaciones..."
+
+`$gitOk = (`$null -ne (Get-Command git -ErrorAction SilentlyContinue)) -and (Test-Path ".git")
+if (`$gitOk) {
+    try {
+        git fetch origin main --quiet 2>`$null
+        `$behind = [int](git rev-list HEAD..origin/main --count 2>`$null)
+        if (`$behind -gt 0) {
+            Write-Host "  `$behind actualizacion(es) disponible(s). Actualizando..."
+            git pull origin main --quiet
+            $pyExe -m pip install -r omr_app\requirements.txt --quiet
+            Write-Host "  Actualizado correctamente."
+        } else {
+            Write-Host "  Ya tienes la version mas reciente."
+        }
+    } catch {
+        Write-Host "  Sin conexion -- omitiendo verificacion."
+    }
+} else {
+    Write-Host "  (Sin repositorio git -- descarga ZIP detectada)"
+}
+
+Write-Host ""
+$pyExe omr_app\main.py
+"@ | Set-Content -Encoding UTF8 $launcherPs1
+
+$launcherBat = "Abrir Calificador.bat"
 @"
 @echo off
 cd /d "%~dp0"
-$PYTHON omr_app\main.py
+powershell -ExecutionPolicy Bypass -File "%~dp0Abrir Calificador.ps1"
 pause
-"@ | Set-Content -Encoding ASCII $launcher
+"@ | Set-Content -Encoding ASCII $launcherBat
 
-Write-Host "    OK  Lanzador creado: `"$launcher`""
+Write-Host "    OK  Lanzador creado: `"$launcherBat`""
 
 # ── Done ───────────────────────────────────────────────────────────────────────
 Write-Host ""
