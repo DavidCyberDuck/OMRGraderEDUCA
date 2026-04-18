@@ -659,6 +659,15 @@ class OMRApp(tk.Tk):
                             "n_questions": n_q,
                             "graded":      graded}
 
+            # Restore student_db from names stored in the Excel (if any)
+            recovered = {r["folio"]: r["nombre"]
+                         for r in rows if r.get("nombre")}
+            if recovered and not self.student_db:
+                self.student_db = recovered
+                self._student_db_label.configure(
+                    text=f"{len(recovered)} alumno{'s' if len(recovered)!=1 else ''} cargados (sesión)",
+                    fg=SUCCESS)
+
             self._log(f"Sesión cargada: {os.path.basename(excel_path)} "
                       f"({len(graded)} estudiantes)")
             self.status_var.set(f"Sesión cargada — {len(graded)} estudiantes")

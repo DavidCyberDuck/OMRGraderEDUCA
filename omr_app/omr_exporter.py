@@ -405,16 +405,18 @@ def read_session_from_excel(excel_path):
             if row[0] is None:
                 break
             folio = str(row[0])
-            grado_val = _rc(row, "Grado")
-            grupo_val = _rc(row, "Grupo")
-            score_val = _rc(row, "Puntaje", 0)
-            total_val = _rc(row, "Total", n_q)
-            pct_val   = _rc(row, "Porcentaje (%)", 0.0)
-            sk_val    = _rc(row, "Prom. Autoconoc.")
-            conf_val  = _rc(row, "Confianza (%)", 0)
-            err_val   = _rc(row, "Estado")
+            grado_val  = _rc(row, "Grado")
+            grupo_val  = _rc(row, "Grupo")
+            nombre_val = _rc(row, "Nombre")
+            score_val  = _rc(row, "Puntaje", 0)
+            total_val  = _rc(row, "Total", n_q)
+            pct_val    = _rc(row, "Porcentaje (%)", 0.0)
+            sk_val     = _rc(row, "Prom. Autoconoc.")
+            conf_val   = _rc(row, "Confianza (%)", 0)
+            err_val    = _rc(row, "Estado")
             resumen[folio] = {
                 "folio":      folio,
+                "nombre":     str(nombre_val).strip() if nombre_val else "",
                 "grado":      str(grado_val) if grado_val else None,
                 "grupo":      str(grupo_val) if grupo_val else None,
                 "score":      score_val or 0,
@@ -460,7 +462,8 @@ def read_session_from_excel(excel_path):
         row = {**rd,
                "page_num":   dd.get("page_num", 0),
                "mc_answers": dd.get("mc_answers", [None] * n_q),
-               "sk_answers": sk_data.get(folio, [None] * 10)}
+               "sk_answers": sk_data.get(folio, [None] * 10),
+               "nombre":     rd.get("nombre", "")}
         rows.append(row)
     rows.sort(key=lambda r: r["page_num"])
     return exam_name, answer_key, rows
