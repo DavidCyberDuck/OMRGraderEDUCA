@@ -138,6 +138,7 @@ else
         BEHIND=\$(git rev-list HEAD..origin/main --count 2>/dev/null || echo 0)
         if [ "\$BEHIND" -gt "0" ]; then
             echo "  \$BEHIND actualización(es) disponible(s). Actualizando..."
+            git checkout -- . --quiet 2>/dev/null
             git pull origin main --quiet
             $PYTHON -m pip install -r omr_app/requirements.txt --quiet
             echo "  Actualizado correctamente."

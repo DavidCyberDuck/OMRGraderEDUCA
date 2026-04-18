@@ -172,6 +172,7 @@ if (-not `$gitInstalled) {
         `$behind = [int](git rev-list HEAD..origin/main --count 2>`$null)
         if (`$behind -gt 0) {
             Write-Host "  `$behind actualizacion(es) disponible(s). Actualizando..."
+            git checkout -- . --quiet 2>`$null
             git pull origin main --quiet
             $pyExe -m pip install -r omr_app\requirements.txt --quiet
             Write-Host "  Actualizado correctamente."
