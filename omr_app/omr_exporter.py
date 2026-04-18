@@ -438,14 +438,20 @@ def read_session_from_excel(excel_path):
                                for v in row[4:4 + n_q]],
             }
 
-    # Autoconocimiento → sk_answers
+    # Autoconocimiento → sk_answers (header-based to handle optional Nombre column)
     sk_data = {}
     if "Autoconocimiento" in wb.sheetnames:
-        for row in wb["Autoconocimiento"].iter_rows(min_row=3, values_only=True):
+        ws_sk   = wb["Autoconocimiento"]
+        sk_hdrs = [cell.value for cell in ws_sk[2]]
+        sk1_col = next((i for i, h in enumerate(sk_hdrs) if h == "SK1"), 3)
+        for row in ws_sk.iter_rows(min_row=3, values_only=True):
             if row[0] is None:
                 break
             folio = str(row[0])
-            sk_data[folio] = [v if v != "-" else None for v in row[3:13]]
+            sk_data[folio] = [
+                v if v != "-" else None
+                for v in row[sk1_col:sk1_col + 10]
+            ]
 
     # Merge and sort
     rows = []
