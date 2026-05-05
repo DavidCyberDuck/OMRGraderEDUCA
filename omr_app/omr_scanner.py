@@ -17,11 +17,12 @@ from layout import (
     MARKER_OFFSET, MARKER_SIZE,
 )
 
-WARP_W  = 850
-WARP_H  = 1100
-SCALE_X = WARP_W / PAGE_W
-SCALE_Y = WARP_H / PAGE_H
-SCAN_R  = 9
+WARP_W     = 850
+WARP_H     = 1100
+SCALE_X    = WARP_W / PAGE_W
+SCALE_Y    = WARP_H / PAGE_H
+SCAN_R     = 9
+FILL_THRESHOLD = 0.28   # works for pencil (~0.40) and pen (~0.60+); noise/smudge ≈ 0.12
 
 
 @dataclass
@@ -135,14 +136,14 @@ def _fill_ratio(gray, x, y, r):
     return cv2.countNonZero(cv2.bitwise_and(inv, inv, mask=mask)) / total
 
 
-def _best_in_row(gray, bubbles, threshold=0.42):
+def _best_in_row(gray, bubbles, threshold=FILL_THRESHOLD):
     """Pick most-filled bubble. Returns index or None if below threshold."""
     ratios = [_fill_ratio(gray, x, y, r) for x, y, r in bubbles]
     best   = max(ratios)
     return ratios.index(best) if best >= threshold else None
 
 
-def _best_with_ambiguity(gray, bubbles, values, threshold=0.42):
+def _best_with_ambiguity(gray, bubbles, values, threshold=FILL_THRESHOLD):
     """
     Like _best_in_row but also detects if multiple bubbles are filled.
     Returns the value string, '?' if ambiguous, or None if blank.
@@ -218,7 +219,7 @@ def scan_page(img_rgb, num_mc_questions):
 
     # Word selections — each bubble is independent (multi-select allowed)
     word_selections = [
-        _fill_ratio(wgray, x, y, r) >= 0.42
+        _fill_ratio(wgray, x, y, r) >= FILL_THRESHOLD
         for x, y, r in _word_row(num_mc_questions)
     ]
 
