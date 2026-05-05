@@ -47,8 +47,17 @@ def _bub(x_pt, y_pt):
 
 
 def pdf_to_images(pdf_path, dpi=200):
+    """Load all pages at once — only safe for small PDFs (≤ ~30 pages)."""
     return [np.array(img.convert("RGB"))
             for img in convert_from_path(pdf_path, dpi=dpi)]
+
+
+def _pdf_page_count(pdf_path):
+    from pdf2image import pdfinfo_from_path
+    return pdfinfo_from_path(pdf_path)["Pages"]
+
+
+SCAN_BATCH = 50   # pages rendered at a time — keeps peak RAM ≈ 550 MB
 
 
 def _preprocess(img_rgb):
@@ -238,25 +247,37 @@ def scan_single_page_from_pdf(pdf_path, page_num, num_mc_questions):
 
 
 def scan_pdf(pdf_path, num_mc_questions, progress_callback=None):
-    images  = pdf_to_images(pdf_path)
+    """
+    Scan all pages using batched rendering so peak RAM stays bounded
+    (≈ SCAN_BATCH × 11 MB) regardless of total page count.
+    """
+    total   = _pdf_page_count(pdf_path)
     results = []
-    for i, img in enumerate(images):
-        if progress_callback:
-            progress_callback(i, len(images))
-        try:
-            result          = scan_page(img, num_mc_questions)
-            result.page_num = i + 1
-        except Exception as e:
-            result = ScanResult(
-                page_num        = i + 1,
-                folio           = "??",
-                grado           = None,
-                grupo           = None,
-                mc_answers      = [None] * num_mc_questions,
-                sk_answers      = [None] * SK_Q,
-                word_selections = [False] * len(SEC3_WORDS),
-                confidence      = 0.0,
-                error           = str(e),
-            )
-        results.append(result)
+
+    for batch_start in range(1, total + 1, SCAN_BATCH):
+        batch_end = min(batch_start + SCAN_BATCH - 1, total)
+        images    = convert_from_path(pdf_path, dpi=200,
+                                      first_page=batch_start,
+                                      last_page=batch_end)
+        for j, pil_img in enumerate(images):
+            page_num = batch_start + j
+            if progress_callback:
+                progress_callback(page_num - 1, total)
+            img = np.array(pil_img.convert("RGB"))
+            try:
+                result          = scan_page(img, num_mc_questions)
+                result.page_num = page_num
+            except Exception as e:
+                result = ScanResult(
+                    page_num        = page_num,
+                    folio           = "??",
+                    grado           = None,
+                    grupo           = None,
+                    mc_answers      = [None] * num_mc_questions,
+                    sk_answers      = [None] * SK_Q,
+                    word_selections = [False] * len(SEC3_WORDS),
+                    confidence      = 0.0,
+                    error           = str(e),
+                )
+            results.append(result)
     return results
