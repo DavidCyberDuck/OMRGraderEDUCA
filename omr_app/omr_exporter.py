@@ -267,10 +267,6 @@ def _sk_sheet(wb, results, student_db=None):
 
 
 def _charts(wb, results, student_db=None):
-    from openpyxl.chart.series import SeriesLabel
-    from openpyxl.chart import Reference
-    from openpyxl.drawing.fill import PatternFillProperties
-
     ws = wb.create_sheet("Gráficas")
     ws.sheet_view.showGridLines = False
 
@@ -287,30 +283,24 @@ def _charts(wb, results, student_db=None):
     ws["A2"].font      = Font(italic=True, size=9, color="888888", name="Arial")
     ws["A2"].alignment = Alignment(horizontal="right")
 
-    # ── Data table ────────────────────────────────────────────────────────────
+    # ── Individual data table ─────────────────────────────────────────────────
     has_db = student_db is not None
-    HDR_ROW = 4
-    headers = ["Folio", "Nombre", "Grado", "Grupo",
-               "Puntaje MC (%)", "Prom. Autoconoc."]
-    if not has_db:
-        headers = ["Folio", "Grado", "Grupo",
-                   "Puntaje MC (%)", "Prom. Autoconoc."]
-
-    for col, h in enumerate(headers, 1):
-        cell = ws.cell(row=HDR_ROW, column=col, value=h)
-        _hdr(cell, bg=C_ACCENT)
-    ws.row_dimensions[HDR_ROW].height = 26
+    IND_HDR = 4
+    ind_headers = (["Folio", "Nombre", "Grado", "Grupo", "Puntaje MC (%)", "Prom. Autoconoc."]
+                   if has_db else
+                   ["Folio", "Grado", "Grupo", "Puntaje MC (%)", "Prom. Autoconoc."])
+    for col, h in enumerate(ind_headers, 1):
+        _hdr(ws.cell(row=IND_HDR, column=col, value=h), bg=C_ACCENT)
+    ws.row_dimensions[IND_HDR].height = 26
 
     for i, gr in enumerate(results):
-        r   = HDR_ROW + 1 + i
-        bg  = C_ALT if r % 2 == 0 else "FFFFFF"
+        r      = IND_HDR + 1 + i
+        bg     = C_ALT if r % 2 == 0 else "FFFFFF"
         nombre = (student_db or {}).get(str(gr.folio), "")
-        if has_db:
-            row_data = [gr.folio, nombre, gr.grado or "?", gr.grupo or "?",
-                        gr.percentage, gr.sk_average or 0]
-        else:
-            row_data = [gr.folio, gr.grado or "?", gr.grupo or "?",
-                        gr.percentage, gr.sk_average or 0]
+        row_data = ([gr.folio, nombre, gr.grado or "?", gr.grupo or "?",
+                     gr.percentage, gr.sk_average or 0] if has_db else
+                    [gr.folio, gr.grado or "?", gr.grupo or "?",
+                     gr.percentage, gr.sk_average or 0])
         for col, val in enumerate(row_data, 1):
             cell = ws.cell(row=r, column=col, value=val)
             cell.font      = Font(name="Arial", size=10)
@@ -318,15 +308,6 @@ def _charts(wb, results, student_db=None):
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border    = _border()
 
-    first_data = HDR_ROW + 1
-    last_data  = HDR_ROW + len(results)
-
-    # Category column: Nombre if available, else Folio (col 1)
-    cat_col  = 2 if has_db else 1   # Nombre col or Folio col
-    pct_col  = 5 if has_db else 4
-    sk_col   = 6 if has_db else 5
-
-    # Column widths
     if has_db:
         for col, w in enumerate([8, 22, 8, 8, 16, 16], 1):
             _cw(ws, col, w)
@@ -334,42 +315,100 @@ def _charts(wb, results, student_db=None):
         for col, w in enumerate([8, 8, 8, 16, 16], 1):
             _cw(ws, col, w)
 
-    # ── Chart 1: Puntaje MC ───────────────────────────────────────────────────
+    # ── Group summary table ───────────────────────────────────────────────────
+    # Aggregate by (Grado, Grupo), sorted so charts read in natural order
+    from collections import defaultdict
+    groups = defaultdict(lambda: {"pct": [], "sk": []})
+    for gr in results:
+        key = (gr.grado or "?", gr.grupo or "?")
+        groups[key]["pct"].append(gr.percentage)
+        if gr.sk_average is not None:
+            groups[key]["sk"].append(gr.sk_average)
+
+    sorted_groups = sorted(groups.items(), key=lambda x: (x[0][0], x[0][1]))
+
+    GRP_HDR = IND_HDR + len(results) + 3   # two blank rows gap
+    grp_label_col = 1   # "Grado X / Grupo Y"
+    grp_n_col     = 2
+    grp_pct_col   = 3
+    grp_sk_col    = 4
+
+    # Section label
+    lbl = ws.cell(row=GRP_HDR - 1, column=1,
+                  value="Resumen por Grado y Grupo")
+    lbl.font = Font(bold=True, size=11, color=C_HDR_FG, name="Arial")
+    lbl.fill = PatternFill("solid", fgColor=C_HDR_BG)
+    ws.merge_cells(start_row=GRP_HDR - 1, start_column=1,
+                   end_row=GRP_HDR - 1, end_column=4)
+    ws.cell(row=GRP_HDR - 1, column=1).alignment = Alignment(
+        horizontal="center", vertical="center")
+    ws.row_dimensions[GRP_HDR - 1].height = 22
+
+    for col, h in enumerate(["Grado / Grupo", "N Alumnos",
+                              "Prom. MC (%)", "Prom. Autoconoc."], 1):
+        _hdr(ws.cell(row=GRP_HDR, column=col, value=h), bg=C_ACCENT)
+    ws.row_dimensions[GRP_HDR].height = 26
+
+    GRP_FIRST = GRP_HDR + 1
+    for i, ((grado, grupo), vals) in enumerate(sorted_groups):
+        r   = GRP_FIRST + i
+        bg  = C_ALT if r % 2 == 0 else "FFFFFF"
+        avg_pct = round(sum(vals["pct"]) / len(vals["pct"]), 1) if vals["pct"] else 0
+        avg_sk  = round(sum(vals["sk"])  / len(vals["sk"]),  2) if vals["sk"]  else "-"
+        label   = f"Grado {grado} / Grupo {grupo}"
+        for col, val in enumerate([label, len(vals["pct"]), avg_pct, avg_sk], 1):
+            cell = ws.cell(row=r, column=col, value=val)
+            cell.font      = Font(name="Arial", size=10)
+            cell.fill      = PatternFill("solid", fgColor=bg)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border    = _border()
+        ws.cell(row=r, column=1).alignment = Alignment(
+            horizontal="left", vertical="center")
+
+    GRP_LAST = GRP_FIRST + len(sorted_groups) - 1
+
+    for col, w in enumerate([22, 12, 16, 16], 1):
+        _cw(ws, col, w)
+
+    # ── Chart 1: Prom. MC (%) por grupo ──────────────────────────────────────
     bar = BarChart()
-    bar.type    = "col"
-    bar.title   = "Sección 1 — Puntaje de Opción Múltiple (%)"
-    bar.style   = 2
-    bar.y_axis.title  = "Porcentaje (%)"
-    bar.x_axis.title  = "Estudiante"
+    bar.type   = "col"
+    bar.title  = "Sección 1 — Puntaje Promedio por Grupo (%)"
+    bar.style  = 2
+    bar.y_axis.title = "Porcentaje (%)"
+    bar.x_axis.title = "Grupo"
     bar.y_axis.scaling.min = 0
     bar.y_axis.scaling.max = 100
-    bar.height  = 14
-    bar.width   = 24
-    bar.add_data(Reference(ws, min_col=pct_col, min_row=HDR_ROW, max_row=last_data),
+    bar.height = 14
+    bar.width  = 22
+    bar.add_data(Reference(ws, min_col=grp_pct_col,
+                           min_row=GRP_HDR, max_row=GRP_LAST),
                  titles_from_data=True)
-    bar.set_categories(Reference(ws, min_col=cat_col,
-                                 min_row=first_data, max_row=last_data))
+    bar.set_categories(Reference(ws, min_col=grp_label_col,
+                                 min_row=GRP_FIRST, max_row=GRP_LAST))
     bar.series[0].graphicalProperties.solidFill = C_ACCENT
     bar.series[0].graphicalProperties.line.solidFill = C_ACCENT
-    ws.add_chart(bar, "I4")
+    ws.add_chart(bar, "F4")
 
-    # ── Chart 2: Promedio Autoconocimiento ────────────────────────────────────
-    line = LineChart()
-    line.title  = "Sección 2 — Promedio de Autoconocimiento"
-    line.style  = 2
-    line.y_axis.title = "Promedio (1–5)"
-    line.x_axis.title = "Estudiante"
-    line.y_axis.scaling.min = 0
-    line.y_axis.scaling.max = 5
-    line.height = 14
-    line.width  = 24
-    line.add_data(Reference(ws, min_col=sk_col, min_row=HDR_ROW, max_row=last_data),
+    # ── Chart 2: Prom. Autoconoc. por grupo ──────────────────────────────────
+    bar2 = BarChart()
+    bar2.type   = "col"
+    bar2.title  = "Sección 2 — Promedio de Autoconocimiento por Grupo"
+    bar2.style  = 2
+    bar2.y_axis.title = "Promedio (1–5)"
+    bar2.x_axis.title = "Grupo"
+    bar2.y_axis.scaling.min = 0
+    bar2.y_axis.scaling.max = 5
+    bar2.height = 14
+    bar2.width  = 22
+    bar2.add_data(Reference(ws, min_col=grp_sk_col,
+                            min_row=GRP_HDR, max_row=GRP_LAST),
                   titles_from_data=True)
-    line.set_categories(Reference(ws, min_col=cat_col,
-                                  min_row=first_data, max_row=last_data))
-    line.series[0].graphicalProperties.line.solidFill = "E74C3C"
-    line.series[0].graphicalProperties.line.width = 25000
-    ws.add_chart(line, "I27")
+    bar2.set_categories(Reference(ws, min_col=grp_label_col,
+                                  min_row=GRP_FIRST, max_row=GRP_LAST))
+    bar2.series[0].graphicalProperties.solidFill = "E74C3C"
+    bar2.series[0].graphicalProperties.line.solidFill = "E74C3C"
+    ws.add_chart(bar2, "F27")
 
 
 def _words_sheet(wb, results):
