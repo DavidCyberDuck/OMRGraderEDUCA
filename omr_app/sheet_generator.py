@@ -55,6 +55,7 @@ from layout import (
     FOLIO_LABEL_X, FOLIO_B1_X, FOLIO_VALUES, FOLIO_ROW1_Y, FOLIO_ROW2_Y, folio_bubble_x,
     SEC1_TITLE_Y, SEC1_RANGE_Y, SEC1_HDR_Y, SEC1_FIRST_Q_Y,
     sec1_divider_y, SK_Q, sec2_title_y,
+    SEC3_WORDS, SEC3_ROWS, SEC3_COL_W, sec3_divider_y, sec3_title_y, sec3_bubble,
     MARKER_SIZE, MARKERS,
 )
 
@@ -245,6 +246,25 @@ def _draw_page(c, num_mc_questions, exam_name):
         c.drawRightString(qx + Q_NUM_OFFSET, qy - 4, f"{i+1}.")
         for j in range(5):
             _bubble(c, qx + BUBBLE_OFFSET + j*BUBBLE_SP_X, qy)
+
+    # ── Section 3 — Palabras ABE ──────────────────────────────────────────────
+    div3_y = sec3_divider_y(num_mc_questions)
+    c.setStrokeColor(colors.grey)
+    c.setLineWidth(0.5)
+    c.line(MARGIN_L - 5, div3_y, PAGE_W - MARGIN_L + 5, div3_y)
+
+    s3y = sec3_title_y(num_mc_questions)
+    c.setFillColor(colors.black)
+    c.setFont(FONT_BOLD, FONT_SIZE)
+    c.drawString(MARGIN_L, s3y,
+                 "Sección 3 — Palabras ABE  (marca todas las que apliquen)")
+
+    for idx, word in enumerate(SEC3_WORDS):
+        bx, by = sec3_bubble(idx, num_mc_questions)
+        _bubble(c, bx, by)
+        c.setFont(FONT, FONT_SIZE)
+        c.setFillColor(colors.black)
+        c.drawString(bx + BUBBLE_R + 6, by - 4, word)
 
     # ── Footer ────────────────────────────────────────────────────────────────
     c.setFillColor(colors.grey)

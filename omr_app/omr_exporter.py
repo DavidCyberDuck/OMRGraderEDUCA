@@ -41,6 +41,7 @@ def export_to_excel(grade_results, answer_key, exam_name, output_path,
     _summary(wb, grade_results, exam_name, student_db)
     _detail(wb, grade_results, answer_key)
     _sk_sheet(wb, grade_results, student_db)
+    _words_sheet(wb, grade_results)
     _charts(wb, grade_results)
     _clave_sheet(wb, answer_key, exam_name)
     if "Sheet" in wb.sheetnames:
@@ -315,6 +316,59 @@ def _charts(wb, results):
 
     for col, w in enumerate([10,14,14,10,10], 1):
         _cw(ws, col, w)
+
+
+def _words_sheet(wb, results):
+    from layout import SEC3_WORDS
+    ws = wb.create_sheet("Palabras ABE")
+    ws.sheet_view.showGridLines = False
+
+    ws.merge_cells("A1:C1")
+    ws["A1"].value = "Sección 3 — Palabras ABE"
+    ws["A1"].font  = Font(bold=True, size=13, color=C_HDR_FG, name="Arial")
+    ws["A1"].fill  = PatternFill("solid", fgColor=C_HDR_BG)
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 28
+
+    for col, h in enumerate(["Palabra", "Selecciones", "% del grupo"], 1):
+        _hdr(ws.cell(row=3, column=col, value=h))
+    ws.row_dimensions[3].height = 28
+
+    n_students = max(len(results), 1)
+    for idx, word in enumerate(SEC3_WORDS):
+        count = sum(
+            1 for gr in results
+            if gr.word_selections and idx < len(gr.word_selections)
+               and gr.word_selections[idx]
+        )
+        pct = round(count / n_students * 100, 1)
+        row = idx + 4
+        bg  = C_ALT if row % 2 == 0 else "FFFFFF"
+        for col, val in enumerate([word, count, pct], 1):
+            cell = ws.cell(row=row, column=col, value=val)
+            cell.font      = Font(name="Arial", size=10)
+            cell.fill      = PatternFill("solid", fgColor=bg)
+            cell.alignment = Alignment(
+                horizontal="left" if col == 1 else "center",
+                vertical="center")
+            cell.border = _border()
+
+    _cw(ws, 1, 22)
+    _cw(ws, 2, 14)
+    _cw(ws, 3, 14)
+
+    bar = BarChart()
+    bar.type   = "bar"   # horizontal bars — easier to read with long word labels
+    bar.title  = "Palabras ABE — Frecuencia"
+    bar.style  = 10
+    bar.x_axis.title = "Selecciones"
+    bar.height = 14
+    bar.width  = 18
+    last_word_row = 3 + len(SEC3_WORDS)
+    bar.add_data(Reference(ws, min_col=2, min_row=3, max_row=last_word_row),
+                 titles_from_data=True)
+    bar.set_categories(Reference(ws, min_col=1, min_row=4, max_row=last_word_row))
+    ws.add_chart(bar, "E3")
 
 
 def _clave_sheet(wb, answer_key, exam_name):

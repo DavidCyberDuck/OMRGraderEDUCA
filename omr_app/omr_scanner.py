@@ -13,6 +13,7 @@ from layout import (
     grado_bubble_x, grupo_bubble_x,
     FOLIO_VALUES, FOLIO_ROW1_Y, FOLIO_ROW2_Y, folio_bubble_x,
     SK_Q, sec1_bubble, sec2_bubble,
+    SEC3_WORDS, sec3_bubble,
     MARKER_OFFSET, MARKER_SIZE,
 )
 
@@ -25,14 +26,15 @@ SCAN_R  = 9
 
 @dataclass
 class ScanResult:
-    page_num:   int
-    folio:      str             # scanned 2-digit folio e.g. '37', '?5', '??'
-    grado:      Optional[str]   # '1','2','3', '?' or None
-    grupo:      Optional[str]   # 'A'–'F', '?' or None
-    mc_answers: list
-    sk_answers: list
-    confidence: float
-    error:      Optional[str] = None
+    page_num:        int
+    folio:           str             # scanned 2-digit folio e.g. '37', '?5', '??'
+    grado:           Optional[str]   # '1','2','3', '?' or None
+    grupo:           Optional[str]   # 'A'–'F', '?' or None
+    mc_answers:      list
+    sk_answers:      list
+    word_selections: list            # list[bool], one per SEC3_WORDS entry
+    confidence:      float
+    error:           Optional[str] = None
 
 
 def _pt_to_px(x_pt, y_pt):
@@ -165,6 +167,11 @@ def _folio_row(row_y):
     return [_bub(folio_bubble_x(i), row_y) for i in range(len(FOLIO_VALUES))]
 
 
+def _word_row(n):
+    """One bubble per word — checked independently (multi-select)."""
+    return [_bub(*sec3_bubble(i, n)) for i in range(len(SEC3_WORDS))]
+
+
 MC_CHOICES = ['A','B','C','D']
 SK_CHOICES  = [1, 2, 3, 4, 5]
 
@@ -195,19 +202,26 @@ def scan_page(img_rgb, num_mc_questions):
     grado = _best_with_ambiguity(wgray, _grado_row(), GRADO_VALUES)
     grupo = _best_with_ambiguity(wgray, _grupo_row(), GRUPO_VALUES)
 
-    # Folio — two rows, each picks one digit 1–9
+    # Folio — two rows, each picks one digit 0–9
     d1 = _best_with_ambiguity(wgray, _folio_row(FOLIO_ROW1_Y), FOLIO_VALUES)
     d2 = _best_with_ambiguity(wgray, _folio_row(FOLIO_ROW2_Y), FOLIO_VALUES)
     folio_str = f"{d1 or '?'}{d2 or '?'}"
 
+    # Word selections — each bubble is independent (multi-select allowed)
+    word_selections = [
+        _fill_ratio(wgray, x, y, r) >= 0.42
+        for x, y, r in _word_row(num_mc_questions)
+    ]
+
     return ScanResult(
-        page_num   = 0,
-        folio      = folio_str,
-        grado      = grado,
-        grupo      = grupo,
-        mc_answers = mc_answers,
-        sk_answers = sk_answers,
-        confidence = filled / max(num_mc_questions, 1),
+        page_num        = 0,
+        folio           = folio_str,
+        grado           = grado,
+        grupo           = grupo,
+        mc_answers      = mc_answers,
+        sk_answers      = sk_answers,
+        word_selections = word_selections,
+        confidence      = filled / max(num_mc_questions, 1),
     )
 
 
@@ -234,14 +248,15 @@ def scan_pdf(pdf_path, num_mc_questions, progress_callback=None):
             result.page_num = i + 1
         except Exception as e:
             result = ScanResult(
-                page_num   = i + 1,
-                folio      = "??",
-                grado      = None,
-                grupo      = None,
-                mc_answers = [None] * num_mc_questions,
-                sk_answers = [None] * SK_Q,
-                confidence = 0.0,
-                error      = str(e),
+                page_num        = i + 1,
+                folio           = "??",
+                grado           = None,
+                grupo           = None,
+                mc_answers      = [None] * num_mc_questions,
+                sk_answers      = [None] * SK_Q,
+                word_selections = [False] * len(SEC3_WORDS),
+                confidence      = 0.0,
+                error           = str(e),
             )
         results.append(result)
     return results

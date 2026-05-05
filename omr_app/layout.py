@@ -121,3 +121,31 @@ def sec2_bubble(q_idx, choice_idx, num_mc_questions):
     qy  = s2y - 42 - row * BUBBLE_SP_Y
     bx  = qx + BUBBLE_OFFSET + choice_idx * BUBBLE_SP_X
     return bx, qy
+
+# ── Section 3 — Palabras ABE ──────────────────────────────────────────────────
+SEC3_WORDS = [
+    "ADN", "HERENCIA", "PATERNIDAD", "SEPARACIÓN",
+    "PROTEÍNAS", "GENES", "MICROPIPETA", "CAMPO ELÉCTRICO",
+    "MOLÉCULAS", "MEMBRANA", "PRECISO", "MICROLITROS",
+]
+SEC3_ROWS  = 6                                        # words per column
+SEC3_COL_W = (PAGE_W - MARGIN_L - MARGIN_R) / 2      # ≈ 262 pt each
+
+def sec3_divider_y(num_mc_questions):
+    """Y of the thin rule separating Section 2 from Section 3."""
+    sk_per_col = (SK_Q + 1) // 2
+    s2y        = sec2_title_y(num_mc_questions)
+    last_sk_y  = s2y - 42 - (sk_per_col - 1) * BUBBLE_SP_Y
+    return last_sk_y - BUBBLE_R - 8
+
+def sec3_title_y(num_mc_questions):
+    return sec3_divider_y(num_mc_questions) - 18
+
+def sec3_bubble(word_idx, num_mc_questions):
+    """Single-bubble coordinate for the given word index (0-11)."""
+    col = word_idx // SEC3_ROWS
+    row = word_idx % SEC3_ROWS
+    s3y = sec3_title_y(num_mc_questions)
+    bx  = MARGIN_L + col * SEC3_COL_W + 8
+    by  = s3y - 30 - row * BUBBLE_SP_Y
+    return bx, by

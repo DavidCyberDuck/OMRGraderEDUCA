@@ -637,19 +637,20 @@ class OMRApp(tk.Tk):
                 sk    = [v for v in row["sk_answers"] if v is not None]
                 sk_avg= round(sum(sk) / len(sk), 2) if sk else None
                 graded.append(GradeResult(
-                    page_num   = row["page_num"],
-                    folio      = row["folio"],
-                    grado      = row["grado"],
-                    grupo      = row["grupo"],
-                    mc_answers = row["mc_answers"],
-                    mc_correct = mc_correct,
-                    score      = row["score"],
-                    total      = row["total"],
-                    percentage = row["percentage"],
-                    sk_answers = row["sk_answers"],
-                    sk_average = sk_avg,
-                    confidence = row["confidence"],
-                    error      = row.get("error"),
+                    page_num        = row["page_num"],
+                    folio           = row["folio"],
+                    grado           = row["grado"],
+                    grupo           = row["grupo"],
+                    mc_answers      = row["mc_answers"],
+                    mc_correct      = mc_correct,
+                    score           = row["score"],
+                    total           = row["total"],
+                    percentage      = row["percentage"],
+                    sk_answers      = row["sk_answers"],
+                    sk_average      = sk_avg,
+                    word_selections = row.get("word_selections", []),
+                    confidence      = row["confidence"],
+                    error           = row.get("error"),
                 ))
 
             self.session = {"pdf_path":    pdf_path,
