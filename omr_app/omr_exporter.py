@@ -323,28 +323,26 @@ def _words_sheet(wb, results):
     ws = wb.create_sheet("Palabras ABE")
     ws.sheet_view.showGridLines = False
 
-    ws.merge_cells("A1:C1")
+    ws.merge_cells("A1:B1")
     ws["A1"].value = "Sección 3 — Palabras ABE"
     ws["A1"].font  = Font(bold=True, size=13, color=C_HDR_FG, name="Arial")
     ws["A1"].fill  = PatternFill("solid", fgColor=C_HDR_BG)
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 28
 
-    for col, h in enumerate(["Palabra", "Selecciones", "% del grupo"], 1):
+    for col, h in enumerate(["Palabra", "Selecciones"], 1):
         _hdr(ws.cell(row=3, column=col, value=h))
     ws.row_dimensions[3].height = 28
 
-    n_students = max(len(results), 1)
     for idx, word in enumerate(SEC3_WORDS):
         count = sum(
             1 for gr in results
             if gr.word_selections and idx < len(gr.word_selections)
                and gr.word_selections[idx]
         )
-        pct = round(count / n_students * 100, 1)
         row = idx + 4
         bg  = C_ALT if row % 2 == 0 else "FFFFFF"
-        for col, val in enumerate([word, count, pct], 1):
+        for col, val in enumerate([word, count], 1):
             cell = ws.cell(row=row, column=col, value=val)
             cell.font      = Font(name="Arial", size=10)
             cell.fill      = PatternFill("solid", fgColor=bg)
@@ -355,7 +353,6 @@ def _words_sheet(wb, results):
 
     _cw(ws, 1, 22)
     _cw(ws, 2, 14)
-    _cw(ws, 3, 14)
 
     bar = BarChart()
     bar.type   = "bar"   # horizontal bars — easier to read with long word labels
@@ -368,7 +365,7 @@ def _words_sheet(wb, results):
     bar.add_data(Reference(ws, min_col=2, min_row=3, max_row=last_word_row),
                  titles_from_data=True)
     bar.set_categories(Reference(ws, min_col=1, min_row=4, max_row=last_word_row))
-    ws.add_chart(bar, "E3")
+    ws.add_chart(bar, "D3")
 
 
 def _clave_sheet(wb, answer_key, exam_name):
