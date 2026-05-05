@@ -42,7 +42,7 @@ def export_to_excel(grade_results, answer_key, exam_name, output_path,
     _detail(wb, grade_results, answer_key)
     _sk_sheet(wb, grade_results, student_db)
     _words_sheet(wb, grade_results)
-    _charts(wb, grade_results)
+    _charts(wb, grade_results, student_db)
     _clave_sheet(wb, answer_key, exam_name)
     if "Sheet" in wb.sheetnames:
         del wb["Sheet"]
@@ -266,56 +266,110 @@ def _sk_sheet(wb, results, student_db=None):
         _cw(ws, col, w)
 
 
-def _charts(wb, results):
+def _charts(wb, results, student_db=None):
+    from openpyxl.chart.series import SeriesLabel
+    from openpyxl.chart import Reference
+    from openpyxl.drawing.fill import PatternFillProperties
+
     ws = wb.create_sheet("Gráficas")
     ws.sheet_view.showGridLines = False
-    ws["A1"].value = "Gráficas de Resultados"
-    ws["A1"].font  = Font(bold=True, size=14, name="Arial", color=C_HDR_BG)
-    ws.row_dimensions[1].height = 24
 
-    ds = 3
-    for col, hdr in enumerate(["Folio","Porcentaje","Prom. SK",
-                                "Grado","Grupo"], 1):
-        ws.cell(row=ds, column=col, value=hdr)
+    # ── Title banner ──────────────────────────────────────────────────────────
+    ws.merge_cells("A1:G1")
+    ws["A1"].value     = "Gráficas de Resultados"
+    ws["A1"].font      = Font(bold=True, size=14, color=C_HDR_FG, name="Arial")
+    ws["A1"].fill      = PatternFill("solid", fgColor=C_HDR_BG)
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 32
+
+    ws.merge_cells("A2:G2")
+    ws["A2"].value     = f"Generado: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    ws["A2"].font      = Font(italic=True, size=9, color="888888", name="Arial")
+    ws["A2"].alignment = Alignment(horizontal="right")
+
+    # ── Data table ────────────────────────────────────────────────────────────
+    has_db = student_db is not None
+    HDR_ROW = 4
+    headers = ["Folio", "Nombre", "Grado", "Grupo",
+               "Puntaje MC (%)", "Prom. Autoconoc."]
+    if not has_db:
+        headers = ["Folio", "Grado", "Grupo",
+                   "Puntaje MC (%)", "Prom. Autoconoc."]
+
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=HDR_ROW, column=col, value=h)
+        _hdr(cell, bg=C_ACCENT)
+    ws.row_dimensions[HDR_ROW].height = 26
 
     for i, gr in enumerate(results):
-        row = ds + 1 + i
-        ws.cell(row=row, column=1, value=gr.folio)
-        ws.cell(row=row, column=2, value=gr.percentage)
-        ws.cell(row=row, column=3, value=gr.sk_average or 0)
-        ws.cell(row=row, column=4, value=gr.grado or "?")
-        ws.cell(row=row, column=5, value=gr.grupo or "?")
+        r   = HDR_ROW + 1 + i
+        bg  = C_ALT if r % 2 == 0 else "FFFFFF"
+        nombre = (student_db or {}).get(str(gr.folio), "")
+        if has_db:
+            row_data = [gr.folio, nombre, gr.grado or "?", gr.grupo or "?",
+                        gr.percentage, gr.sk_average or 0]
+        else:
+            row_data = [gr.folio, gr.grado or "?", gr.grupo or "?",
+                        gr.percentage, gr.sk_average or 0]
+        for col, val in enumerate(row_data, 1):
+            cell = ws.cell(row=r, column=col, value=val)
+            cell.font      = Font(name="Arial", size=10)
+            cell.fill      = PatternFill("solid", fgColor=bg)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border    = _border()
 
-    last = ds + len(results)
+    first_data = HDR_ROW + 1
+    last_data  = HDR_ROW + len(results)
 
+    # Category column: Nombre if available, else Folio (col 1)
+    cat_col  = 2 if has_db else 1   # Nombre col or Folio col
+    pct_col  = 5 if has_db else 4
+    sk_col   = 6 if has_db else 5
+
+    # Column widths
+    if has_db:
+        for col, w in enumerate([8, 22, 8, 8, 16, 16], 1):
+            _cw(ws, col, w)
+    else:
+        for col, w in enumerate([8, 8, 8, 16, 16], 1):
+            _cw(ws, col, w)
+
+    # ── Chart 1: Puntaje MC ───────────────────────────────────────────────────
     bar = BarChart()
-    bar.type  = "col"
-    bar.title = "Puntaje por Estudiante (%)"
-    bar.style = 10
-    bar.y_axis.title = "Porcentaje"
-    bar.x_axis.title = "Folio"
-    bar.height = 12; bar.width = 20
+    bar.type    = "col"
+    bar.title   = "Sección 1 — Puntaje de Opción Múltiple (%)"
+    bar.style   = 2
+    bar.y_axis.title  = "Porcentaje (%)"
+    bar.x_axis.title  = "Estudiante"
     bar.y_axis.scaling.min = 0
     bar.y_axis.scaling.max = 100
-    bar.add_data(Reference(ws, min_col=2, min_row=ds, max_row=last),
+    bar.height  = 14
+    bar.width   = 24
+    bar.add_data(Reference(ws, min_col=pct_col, min_row=HDR_ROW, max_row=last_data),
                  titles_from_data=True)
-    bar.set_categories(Reference(ws, min_col=1, min_row=ds+1, max_row=last))
-    ws.add_chart(bar, "H3")
+    bar.set_categories(Reference(ws, min_col=cat_col,
+                                 min_row=first_data, max_row=last_data))
+    bar.series[0].graphicalProperties.solidFill = C_ACCENT
+    bar.series[0].graphicalProperties.line.solidFill = C_ACCENT
+    ws.add_chart(bar, "I4")
 
+    # ── Chart 2: Promedio Autoconocimiento ────────────────────────────────────
     line = LineChart()
-    line.title = "Promedio Autoconocimiento"
-    line.style = 10
-    line.y_axis.title = "Promedio (1-5)"
+    line.title  = "Sección 2 — Promedio de Autoconocimiento"
+    line.style  = 2
+    line.y_axis.title = "Promedio (1–5)"
+    line.x_axis.title = "Estudiante"
     line.y_axis.scaling.min = 0
     line.y_axis.scaling.max = 5
-    line.height = 12; line.width = 20
-    line.add_data(Reference(ws, min_col=3, min_row=ds, max_row=last),
+    line.height = 14
+    line.width  = 24
+    line.add_data(Reference(ws, min_col=sk_col, min_row=HDR_ROW, max_row=last_data),
                   titles_from_data=True)
-    line.set_categories(Reference(ws, min_col=1, min_row=ds+1, max_row=last))
-    ws.add_chart(line, "H23")
-
-    for col, w in enumerate([10,14,14,10,10], 1):
-        _cw(ws, col, w)
+    line.set_categories(Reference(ws, min_col=cat_col,
+                                  min_row=first_data, max_row=last_data))
+    line.series[0].graphicalProperties.line.solidFill = "E74C3C"
+    line.series[0].graphicalProperties.line.width = 25000
+    ws.add_chart(line, "I27")
 
 
 def _words_sheet(wb, results):
