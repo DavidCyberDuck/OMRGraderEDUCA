@@ -6,7 +6,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.utils import get_column_letter
-from openpyxl.formatting.rule import ColorScaleRule
+from openpyxl.formatting.rule import ColorScaleRule, FormulaRule
 import datetime
 
 C_HDR_BG = "2C3E50"
@@ -85,28 +85,29 @@ def _summary(wb, results, exam_name, student_db=None):
         _hdr(ws.cell(row=4, column=col, value=h))
     ws.row_dimensions[4].height = 32
 
+    # Score column in 'Detalle Preguntas' = col (4 + n_q + 1) = n_q + 5
+    # We derive n_q from the first result's mc_answers so _summary() stays independent.
+    n_q = len(results[0].mc_answers) if results else 0
+    detail_score_ltr = get_column_letter(n_q + 5)  # Puntaje column in Detalle sheet
+
+    # Folio is always col A in Resumen; folio is always col B in Detalle Preguntas.
+    SCORE_COL_IDX = 5 if has_db else 4   # 1-based column index of Puntaje in this sheet
+    TOTAL_COL_IDX = SCORE_COL_IDX + 1
+    PCT_COL_IDX   = SCORE_COL_IDX + 2
+
     C_YELLOW = "FFF3CD"
 
     for r, gr in enumerate(results, 5):
         bg = C_ALT if r % 2 == 0 else "FFFFFF"
+
+        # ── Static / look-up meta columns ──────────────────────────────────────
         if has_db:
             nombre = student_db.get(str(gr.folio), "")
-            row_data = [
-                gr.folio, nombre, gr.grado or "?", gr.grupo or "?",
-                gr.score, gr.total, gr.percentage,
-                gr.sk_average if gr.sk_average is not None else "N/A",
-                round(gr.confidence * 100, 0),
-                "⚠ Error" if gr.error else "OK",
-            ]
+            meta = [gr.folio, nombre, gr.grado or "?", gr.grupo or "?"]
         else:
-            row_data = [
-                gr.folio, gr.grado or "?", gr.grupo or "?",
-                gr.score, gr.total, gr.percentage,
-                gr.sk_average if gr.sk_average is not None else "N/A",
-                round(gr.confidence * 100, 0),
-                "⚠ Error" if gr.error else "OK",
-            ]
-        for col, val in enumerate(row_data, 1):
+            meta = [gr.folio, gr.grado or "?", gr.grupo or "?"]
+
+        for col, val in enumerate(meta, 1):
             cell = ws.cell(row=r, column=col, value=val)
             cell.font      = Font(name="Arial", size=10)
             cell.fill      = PatternFill("solid", fgColor=bg)
@@ -117,14 +118,58 @@ def _summary(wb, results, exam_name, student_db=None):
         if has_db and not student_db.get(str(gr.folio)):
             ws.cell(row=r, column=2).fill = PatternFill("solid", fgColor=C_YELLOW)
 
-        # Color-code percentage column
-        pct_cell = ws.cell(row=r, column=pct_col)
+        # ── Formula-based score: INDEX/MATCH into Detalle Preguntas ────────────
+        # Folio in this sheet is always col A; in Detalle it is col B.
+        score_formula = (
+            f"=IFERROR(INDEX('Detalle Preguntas'!${detail_score_ltr}:${detail_score_ltr},"
+            f"MATCH(A{r},'Detalle Preguntas'!$B:$B,0)),0)"
+        )
+        sc = ws.cell(row=r, column=SCORE_COL_IDX, value=score_formula)
+        sc.font      = Font(name="Arial", size=10)
+        sc.fill      = PatternFill("solid", fgColor=bg)
+        sc.alignment = Alignment(horizontal="center", vertical="center")
+        sc.border    = _border()
+
+        # Total — static (n_q never changes per export)
+        tc = ws.cell(row=r, column=TOTAL_COL_IDX, value=n_q)
+        tc.font      = Font(name="Arial", size=10)
+        tc.fill      = PatternFill("solid", fgColor=bg)
+        tc.alignment = Alignment(horizontal="center", vertical="center")
+        tc.border    = _border()
+
+        # Percentage — formula driven by score cell
+        score_cell_ref = f"{get_column_letter(SCORE_COL_IDX)}{r}"
+        total_cell_ref = f"{get_column_letter(TOTAL_COL_IDX)}{r}"
+        pc = ws.cell(row=r, column=PCT_COL_IDX,
+                     value=f"=IFERROR(ROUND({score_cell_ref}/{total_cell_ref}*100,1),0)")
+        pc.font      = Font(name="Arial", size=10)
+        pc.fill      = PatternFill("solid", fgColor=bg)
+        pc.alignment = Alignment(horizontal="center", vertical="center")
+        pc.border    = _border()
+
+        # ── Remaining static columns ────────────────────────────────────────────
+        tail = [
+            gr.sk_average if gr.sk_average is not None else "N/A",
+            round(gr.confidence * 100, 0),
+            "⚠ Error" if gr.error else "OK",
+        ]
+        for col, val in enumerate(tail, PCT_COL_IDX + 1):
+            cell = ws.cell(row=r, column=col, value=val)
+            cell.font      = Font(name="Arial", size=10)
+            cell.fill      = PatternFill("solid", fgColor=bg)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border    = _border()
+
+        # Color-code percentage column — ColorScale CF handles the gradient below;
+        # keep a simple green/red fill as a static fallback for the formula cell.
+        pct_letter_res = get_column_letter(PCT_COL_IDX)
+        pct_cell = ws.cell(row=r, column=PCT_COL_IDX)
         pct_cell.fill = PatternFill("solid",
                         fgColor=C_GREEN if gr.percentage >= 70 else C_RED)
 
-    last = 4 + len(results)
-    pct_letter = get_column_letter(pct_col)
-    sr   = last + 2
+    last          = 4 + len(results)
+    pct_letter    = get_column_letter(PCT_COL_IDX)   # e.g. 'G' or 'F'
+    sr            = last + 2
     ws.cell(row=sr, column=1, value="Estadísticas").font = Font(bold=True, name="Arial")
     for i, (lbl, fml) in enumerate([
         ("Promedio",         f"=AVERAGE({pct_letter}5:{pct_letter}{last})"),
@@ -150,58 +195,125 @@ def _detail(wb, results, answer_key):
     ws.sheet_view.showGridLines = False
     n_q = len(answer_key)
 
-    ws.merge_cells(f"A1:{get_column_letter(n_q+5)}1")
+    # Column layout
+    ANS_START  = 5            # first answer column (1-indexed)
+    ANS_END    = 4 + n_q      # last answer column
+    SCORE_COL  = ANS_END + 1  # Puntaje
+    TOTAL_COL  = ANS_END + 2  # Total
+    PCT_COL    = ANS_END + 3  # %
+    FIRST_DATA = 4            # first student row
+
+    last_ans_ltr = get_column_letter(ANS_END)
+    score_ltr    = get_column_letter(SCORE_COL)
+    total_ltr    = get_column_letter(TOTAL_COL)
+    pct_ltr      = get_column_letter(PCT_COL)
+
+    ws.merge_cells(f"A1:{pct_ltr}1")
     ws["A1"].value = "Detalle de Respuestas — Sección 1"
     ws["A1"].font  = Font(bold=True, size=13, color=C_HDR_FG, name="Arial")
     ws["A1"].fill  = PatternFill("solid", fgColor=C_HDR_BG)
     ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 28
 
-    for col, val in enumerate(["Clave","Folio","Grado","Grupo"] +
-                               answer_key, 1):
+    # Row 2 — key values + column headers for score cols
+    for col, val in enumerate(["Clave", "Folio", "Grado", "Grupo"] +
+                               answer_key +
+                               ["Puntaje", "Total", "%"], 1):
         cell = ws.cell(row=2, column=col, value=val)
+        is_ans = ANS_START <= col <= ANS_END
         cell.font = Font(bold=True,
-                         color=C_HDR_FG if col > 4 else "000000",
+                         color=C_HDR_FG if is_ans else "000000",
                          name="Arial", size=9)
-        if col > 4:
+        if is_ans:
             cell.fill = PatternFill("solid", fgColor=C_ACCENT)
+        elif col >= SCORE_COL:
+            cell.fill = PatternFill("solid", fgColor="ECF0F1")
         cell.alignment = Alignment(horizontal="center")
 
-    for col, val in enumerate(["","Folio","Grado","Grupo"] +
-                               [f"P{q}" for q in range(1, n_q+1)], 1):
+    # Row 3 — sub-headers
+    for col, val in enumerate(["", "Folio", "Grado", "Grupo"] +
+                               [f"P{q}" for q in range(1, n_q + 1)] +
+                               ["", "", ""], 1):
         cell = ws.cell(row=3, column=col, value=val)
         cell.font = Font(bold=True, name="Arial", size=8)
         cell.alignment = Alignment(horizontal="center")
         cell.fill = PatternFill("solid", fgColor="ECF0F1")
 
-    for r, gr in enumerate(results, 4):
+    # Data rows
+    for r, gr in enumerate(results, FIRST_DATA):
+        bg = C_ALT if r % 2 == 0 else "FFFFFF"
         ws.cell(row=r, column=1, value=gr.page_num)
         ws.cell(row=r, column=2, value=gr.folio)
         ws.cell(row=r, column=3, value=gr.grado or "?")
         ws.cell(row=r, column=4, value=gr.grupo or "?")
-        for q, (ans, ok) in enumerate(zip(gr.mc_answers, gr.mc_correct)):
-            cell = ws.cell(row=r, column=q+5, value=ans or "-")
+        for q, ans in enumerate(gr.mc_answers):
+            cell = ws.cell(row=r, column=q + ANS_START, value=ans or "-")
             cell.alignment = Alignment(horizontal="center")
-            cell.font = Font(name="Arial", size=9)
-            cell.fill = PatternFill("solid", fgColor=C_GREEN if ok else C_RED)
+            cell.font      = Font(name="Arial", size=9)
+            # Colour is applied by ConditionalFormatting below
 
-    last = 3 + len(results)
-    acc  = last + 2
+        # Puntaje — SUMPRODUCT formula counts how many answers match key row 2
+        sc = ws.cell(row=r, column=SCORE_COL,
+                     value=f"=SUMPRODUCT((E{r}:{last_ans_ltr}{r}"
+                           f"=E$2:{last_ans_ltr}$2)*1)")
+        sc.alignment = Alignment(horizontal="center")
+        sc.font      = Font(name="Arial", size=9, bold=True)
+        sc.fill      = PatternFill("solid", fgColor=bg)
+
+        # Total — static, so it's always visible even without recalculation
+        tc = ws.cell(row=r, column=TOTAL_COL, value=n_q)
+        tc.alignment = Alignment(horizontal="center")
+        tc.font      = Font(name="Arial", size=9)
+        tc.fill      = PatternFill("solid", fgColor=bg)
+
+        # Porcentaje — formula driven by the score cell
+        pc = ws.cell(row=r, column=PCT_COL,
+                     value=f"=IFERROR(ROUND({score_ltr}{r}/{total_ltr}{r}*100,1),0)")
+        pc.alignment = Alignment(horizontal="center")
+        pc.font      = Font(name="Arial", size=9)
+        pc.fill      = PatternFill("solid", fgColor=bg)
+
+    last_data_row = FIRST_DATA - 1 + len(results)
+
+    # Aciertos % row — formula counts matches vs key per question column
+    acc = last_data_row + 2
     ws.cell(row=acc, column=1, value="Aciertos %").font = Font(bold=True, name="Arial", size=9)
     for q in range(n_q):
-        correct = sum(1 for gr in results
-                      if q < len(gr.mc_correct) and gr.mc_correct[q])
-        pct  = round(correct / max(len(results), 1) * 100, 1)
-        cell = ws.cell(row=acc, column=q+5, value=pct)
-        cell.font = Font(name="Arial", size=9)
+        col_ltr = get_column_letter(q + ANS_START)
+        cell = ws.cell(
+            row=acc, column=q + ANS_START,
+            value=(f"=IFERROR(ROUND("
+                   f"COUNTIF({col_ltr}{FIRST_DATA}:{col_ltr}{last_data_row},{col_ltr}$2)"
+                   f"/COUNTA({col_ltr}{FIRST_DATA}:{col_ltr}{last_data_row})"
+                   f"*100,1),0)"))
+        cell.font      = Font(name="Arial", size=9)
         cell.alignment = Alignment(horizontal="center")
-        cell.fill = PatternFill("solid",
-                    fgColor=C_GREEN if pct >= 80 else (C_RED if pct < 50 else "FFFFFF"))
 
-    for col in range(1, n_q+6):
+    # ── Conditional formatting on the answer area ─────────────────────────────
+    # FormulaRule formulas are written for the top-left cell of the CF range;
+    # relative references shift per-cell, absolute ($2) stays fixed on the key row.
+    cf_range = f"E{FIRST_DATA}:{last_ans_ltr}{last_data_row}"
+
+    # Green = filled and correct (matches key)
+    ws.conditional_formatting.add(cf_range, FormulaRule(
+        formula=[f'AND(E{FIRST_DATA}<>"-",E{FIRST_DATA}=E$2)'],
+        fill=PatternFill(bgColor=C_GREEN),
+        stopIfTrue=True,
+    ))
+    # Red = filled but wrong
+    ws.conditional_formatting.add(cf_range, FormulaRule(
+        formula=[f'AND(E{FIRST_DATA}<>"-",E{FIRST_DATA}<>E$2)'],
+        fill=PatternFill(bgColor=C_RED),
+    ))
+
+    # Column widths
+    for col in range(1, PCT_COL + 1):
         _cw(ws, col, 5.5)
-    for col, w in enumerate([6,8,7,7], 1):
+    for col, w in enumerate([6, 8, 7, 7], 1):
         _cw(ws, col, w)
+    _cw(ws, SCORE_COL, 9)
+    _cw(ws, TOTAL_COL, 7)
+    _cw(ws, PCT_COL, 8)
 
 
 def _sk_sheet(wb, results, student_db=None):
@@ -603,11 +715,28 @@ def read_session_from_excel(excel_path):
     rows = []
     for folio, rd in resumen.items():
         dd  = detail.get(folio, {})
+        mc  = dd.get("mc_answers", [None] * n_q)
+
+        # Score/percentage may be formula cells with no cached value (None) when
+        # the file was exported by this app but never opened in Excel.
+        # Fall back to counting correct answers from mc_answers + answer_key.
+        score_val   = rd.get("score", None)
+        pct_val     = rd.get("percentage", None)
+        if (score_val is None or score_val == 0) and answer_key and mc:
+            score_val = sum(
+                1 for a, k in zip(mc, answer_key)
+                if a is not None and a == k
+            )
+        if (pct_val is None or pct_val == 0) and n_q > 0 and score_val is not None:
+            pct_val = round(score_val / n_q * 100, 1)
+
         row = {**rd,
                "page_num":   dd.get("page_num", 0),
-               "mc_answers": dd.get("mc_answers", [None] * n_q),
+               "mc_answers": mc,
                "sk_answers": sk_data.get(folio, [None] * 10),
-               "nombre":     rd.get("nombre", "")}
+               "nombre":     rd.get("nombre", ""),
+               "score":      score_val or 0,
+               "percentage": pct_val or 0.0}
         rows.append(row)
     rows.sort(key=lambda r: r["page_num"])
     return exam_name, answer_key, rows
