@@ -272,7 +272,7 @@ class OMRApp(tk.Tk):
     def _rebuild_answer_key(self):
         # Preserve whatever the user currently has set; only fall back to
         # cfg for question slots that didn't exist before (e.g. 10 → 20).
-        current = [v.get() for v in self.answer_vars] if self.answer_vars else []
+        current = [v.get() for v in getattr(self, "answer_vars", [])]
 
         for w in self.key_frame.winfo_children():
             w.destroy()
