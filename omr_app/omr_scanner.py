@@ -86,10 +86,10 @@ def _find_corners(thresh, shape):
         if not (0.35 < cw / max(ch, 1) < 2.8):
             continue
         cx, cy = bx + cw // 2, by + ch // 2
-        in_l = cx < w * 0.30
-        in_r = cx > w * 0.70
-        in_t = cy < h * 0.30
-        in_b = cy > h * 0.70
+        in_l = cx < w * 0.15
+        in_r = cx > w * 0.85
+        in_t = cy < h * 0.15
+        in_b = cy > h * 0.85
         if in_l and in_t:
             quad['tl'].append((cx, cy, area))
         if in_r and in_t:
