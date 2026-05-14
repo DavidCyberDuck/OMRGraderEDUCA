@@ -270,6 +270,10 @@ class OMRApp(tk.Tk):
         self._rebuild_answer_key()
 
     def _rebuild_answer_key(self):
+        # Preserve whatever the user currently has set; only fall back to
+        # cfg for question slots that didn't exist before (e.g. 10 → 20).
+        current = [v.get() for v in self.answer_vars] if self.answer_vars else []
+
         for w in self.key_frame.winfo_children():
             w.destroy()
         n = self.num_questions_var.get()
@@ -285,7 +289,9 @@ class OMRApp(tk.Tk):
                      font=("Arial", 7)).pack()
 
             var = tk.StringVar(value="A")
-            if i < len(self.cfg.get("answer_key", [])):
+            if i < len(current):
+                var.set(current[i])
+            elif i < len(self.cfg.get("answer_key", [])):
                 var.set(self.cfg["answer_key"][i])
 
             btn_row = tk.Frame(sub, bg=CARD)
