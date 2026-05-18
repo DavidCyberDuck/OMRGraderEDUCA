@@ -2,7 +2,7 @@
 OMR Grader — Desktop GUI
 """
 import os, sys, json, threading, tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 import datetime
 
 from sheet_generator import generate_omr_sheet
@@ -38,6 +38,259 @@ FG     = "#1A202C"   # near-black text
 FG2    = "#546E7A"   # slate gray secondary text
 CARD   = "#FFFFFF"   # white cards
 PURPLE = "#5E35B1"   # purple (load session)
+
+
+class BatchDialog(tk.Toplevel):
+    """
+    Modal dialog for batch-grading multiple PDFs.
+    Each PDF can be assigned a custom output Excel name.
+    Uses the same answer key, exam name, n_questions, and student_db
+    that are currently configured in the parent OMRApp.
+    """
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.app      = app
+        self._entries = []          # list of {pdf_path, output_name}
+        self._running = False
+        self._out_dir = app.cfg.get("last_output_dir", os.path.expanduser("~"))
+
+        self.title("Procesar múltiples PDFs")
+        self.resizable(True, True)
+        self.geometry("700x480")
+        self.configure(bg=BG)
+        self.grab_set()             # modal
+
+        self._build()
+
+    # ── Layout ────────────────────────────────────────────────────────────────
+
+    def _build(self):
+        # Title
+        tk.Label(self, text="Lote de PDFs", bg=BG, fg=FG,
+                 font=("Arial", 13, "bold")).pack(anchor="w", padx=16, pady=(14, 4))
+        tk.Label(self, text="Agrega los PDFs a procesar y asigna un nombre a cada Excel.",
+                 bg=BG, fg=FG2, font=("Arial", 9)).pack(anchor="w", padx=16)
+
+        # ── Queue table ───────────────────────────────────────────────────────
+        tbl_frame = tk.Frame(self, bg=BG)
+        tbl_frame.pack(fill="both", expand=True, padx=16, pady=(8, 0))
+
+        cols = ("pdf", "output")
+        self._tree = ttk.Treeview(tbl_frame, columns=cols, show="headings",
+                                  selectmode="browse", height=10)
+        self._tree.heading("pdf",    text="Archivo PDF")
+        self._tree.heading("output", text="Nombre del Excel de salida")
+        self._tree.column("pdf",    width=280, anchor="w")
+        self._tree.column("output", width=320, anchor="w")
+
+        sb = ttk.Scrollbar(tbl_frame, orient="vertical", command=self._tree.yview)
+        self._tree.configure(yscrollcommand=sb.set)
+        self._tree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y")
+
+        self._tree.tag_configure("running", background="#FFF3CD")
+        self._tree.tag_configure("done",    background="#D4EDDA")
+        self._tree.tag_configure("error",   background="#F8D7DA")
+
+        self._tree.bind("<Double-1>", lambda e: self._edit_name())
+
+        # ── Queue buttons ─────────────────────────────────────────────────────
+        btn_row = tk.Frame(self, bg=BG)
+        btn_row.pack(fill="x", padx=16, pady=6)
+        for text, cmd in [("➕  Agregar PDF(s)", self._add_pdfs),
+                           ("✏️  Editar nombre",   self._edit_name),
+                           ("🗑  Eliminar",         self._remove_selected),
+                           ("✖  Limpiar todo",     self._clear_all)]:
+            tk.Label(btn_row, text=text, bg=ACCENT, fg="white",
+                     font=("Arial", 9, "bold"), cursor="hand2",
+                     padx=10, pady=5).pack(side="left", padx=(0, 6))
+            btn_row.winfo_children()[-1].bind("<Button-1>", lambda e, c=cmd: c())
+
+        # ── Output directory ──────────────────────────────────────────────────
+        dir_row = tk.Frame(self, bg=BG)
+        dir_row.pack(fill="x", padx=16, pady=(0, 6))
+        tk.Label(dir_row, text="Carpeta de salida:", bg=BG, fg=FG2,
+                 font=("Arial", 9)).pack(side="left")
+        self._dir_lbl = tk.Label(dir_row, text=self._out_dir, bg=BG, fg=FG,
+                                  font=("Arial", 9), cursor="hand2",
+                                  wraplength=400, justify="left")
+        self._dir_lbl.pack(side="left", padx=6)
+        tk.Label(dir_row, text="[Cambiar]", bg=BG, fg=ACCENT,
+                 font=("Arial", 9, "underline"), cursor="hand2").pack(side="left")
+        dir_row.winfo_children()[-1].bind("<Button-1>", lambda e: self._change_dir())
+
+        # ── Progress / status ─────────────────────────────────────────────────
+        prog_frame = tk.Frame(self, bg=BG)
+        prog_frame.pack(fill="x", padx=16, pady=(0, 4))
+        self._prog_var  = tk.DoubleVar(value=0)
+        self._stat_var  = tk.StringVar(value="")
+        ttk.Progressbar(prog_frame, variable=self._prog_var,
+                        maximum=100).pack(fill="x")
+        tk.Label(prog_frame, textvariable=self._stat_var, bg=BG, fg=FG2,
+                 font=("Arial", 9)).pack(anchor="w")
+
+        # ── Action buttons ────────────────────────────────────────────────────
+        act_row = tk.Frame(self, bg=BG)
+        act_row.pack(fill="x", padx=16, pady=(4, 14))
+
+        self._start_frm = tk.Frame(act_row, bg=SUCCESS, cursor="hand2")
+        self._start_frm.pack(side="left", padx=(0, 8))
+        self._start_lbl = tk.Label(self._start_frm, text="▶  Iniciar lote",
+                                   bg=SUCCESS, fg="white",
+                                   font=("Arial", 10, "bold"),
+                                   cursor="hand2", padx=14, pady=8)
+        self._start_lbl.pack()
+        for w in (self._start_frm, self._start_lbl):
+            w.bind("<Button-1>", lambda e: self._start())
+
+        cancel_frm = tk.Frame(act_row, bg=FG2, cursor="hand2")
+        cancel_frm.pack(side="left")
+        cancel_lbl = tk.Label(cancel_frm, text="Cancelar", bg=FG2, fg="white",
+                              font=("Arial", 10), cursor="hand2", padx=14, pady=8)
+        cancel_lbl.pack()
+        for w in (cancel_frm, cancel_lbl):
+            w.bind("<Button-1>", lambda e: self.destroy())
+
+        self._refresh_start_state()
+
+    # ── Queue management ──────────────────────────────────────────────────────
+
+    def _add_pdfs(self):
+        paths = filedialog.askopenfilenames(
+            parent=self,
+            title="Seleccionar PDF(s) escaneados",
+            filetypes=[("PDF", "*.pdf")])
+        for path in paths:
+            stem        = os.path.splitext(os.path.basename(path))[0]
+            output_name = f"resultados_{stem}.xlsx"
+            self._entries.append({"pdf_path": path, "output_name": output_name})
+            self._tree.insert("", "end",
+                              values=(os.path.basename(path), output_name))
+        self._refresh_start_state()
+
+    def _edit_name(self):
+        sel = self._tree.selection()
+        if not sel:
+            return
+        iid   = sel[0]
+        idx   = self._tree.index(iid)
+        entry = self._entries[idx]
+        new_name = simpledialog.askstring(
+            "Editar nombre", "Nombre del archivo Excel de salida:",
+            initialvalue=entry["output_name"], parent=self)
+        if not new_name:
+            return
+        if not new_name.lower().endswith(".xlsx"):
+            new_name += ".xlsx"
+        entry["output_name"] = new_name
+        self._tree.item(iid, values=(os.path.basename(entry["pdf_path"]), new_name))
+
+    def _remove_selected(self):
+        sel = self._tree.selection()
+        if not sel:
+            return
+        iid = sel[0]
+        idx = self._tree.index(iid)
+        self._tree.delete(iid)
+        self._entries.pop(idx)
+        self._refresh_start_state()
+
+    def _clear_all(self):
+        for iid in self._tree.get_children():
+            self._tree.delete(iid)
+        self._entries.clear()
+        self._refresh_start_state()
+
+    def _change_dir(self):
+        d = filedialog.askdirectory(parent=self, initialdir=self._out_dir,
+                                    title="Carpeta de salida para los Excel")
+        if d:
+            self._out_dir = d
+            self._dir_lbl.configure(text=d)
+
+    def _refresh_start_state(self):
+        has = bool(self._entries) and not self._running
+        col = SUCCESS if has else FG2
+        self._start_frm.configure(bg=col)
+        self._start_lbl.configure(bg=col)
+
+    # ── Batch runner ──────────────────────────────────────────────────────────
+
+    def _start(self):
+        if self._running or not self._entries:
+            return
+        answer_key = self.app._get_answer_key()
+        if not any(answer_key):
+            messagebox.showwarning("Aviso",
+                "Configura la clave de respuestas antes de iniciar.",
+                parent=self)
+            return
+        self._running = True
+        self._refresh_start_state()
+        threading.Thread(target=self._run_batch, daemon=True).start()
+
+    def _run_batch(self):
+        answer_key = self.app._get_answer_key()
+        exam_name  = self.app.exam_name_var.get() or "Examen"
+        n_q        = self.app._read_n()
+        student_db = self.app.student_db or None
+        total      = len(self._entries)
+        iids       = self._tree.get_children()
+        errors     = []
+
+        for i, (iid, entry) in enumerate(zip(iids, self._entries)):
+            pdf_path  = entry["pdf_path"]
+            out_path  = os.path.join(self._out_dir, entry["output_name"])
+            pdf_label = os.path.basename(pdf_path)
+
+            # Mark row as running
+            self.after(0, lambda iid=iid: self._tree.item(iid, tags=("running",)))
+            self._stat_var.set(f"[{i+1}/{total}] Escaneando {pdf_label}…")
+
+            try:
+                def cb(page_i, page_total, i=i, total=total):
+                    frac = (i + page_i / max(page_total, 1)) / total
+                    self._prog_var.set(frac * 90)
+                    self._stat_var.set(
+                        f"[{i+1}/{total}] {pdf_label} — pág. {page_i+1}/{page_total}")
+
+                scans  = scan_pdf(pdf_path, n_q, progress_callback=cb)
+                graded = grade_results(scans, answer_key)
+
+                self._stat_var.set(f"[{i+1}/{total}] Exportando {entry['output_name']}…")
+                export_to_excel(graded, answer_key, exam_name, out_path,
+                                student_db=student_db)
+
+                # Store last graded session in the parent app for rescan access
+                self.app.session = {
+                    "pdf_path":    pdf_path,
+                    "out_path":    out_path,
+                    "exam_name":   exam_name,
+                    "answer_key":  answer_key,
+                    "n_questions": n_q,
+                    "graded":      graded,
+                }
+                self.app.after(0, self.app._populate_results_table)
+
+                self.after(0, lambda iid=iid: self._tree.item(iid, tags=("done",)))
+                self.app._log(f"✓ [{i+1}/{total}] {pdf_label} → {entry['output_name']}")
+
+            except Exception as e:
+                errors.append((pdf_label, str(e)))
+                self.after(0, lambda iid=iid: self._tree.item(iid, tags=("error",)))
+                self.app._log(f"✗ [{i+1}/{total}] {pdf_label}: {e}")
+
+        self._prog_var.set(100)
+        self._running = False
+        self.after(0, self._refresh_start_state)
+
+        ok    = total - len(errors)
+        msg   = f"Lote completado: {ok}/{total} PDF(s) procesados correctamente."
+        if errors:
+            msg += "\n\nErrores:\n" + "\n".join(f"• {n}: {e}" for n, e in errors)
+        self._stat_var.set(f"Listo — {ok}/{total} completados")
+        self.after(0, lambda: messagebox.showinfo("Lote completado", msg, master=self))
 
 
 class OMRApp(tk.Tk):
@@ -331,8 +584,9 @@ class OMRApp(tk.Tk):
 
     def _build_actions(self, f):
         bf = tk.Frame(f, bg=BG); bf.pack(fill="x", pady=4)
-        self._btn(bf, "Calificar PDF",        self._start_grading, SUCCESS)
-        self._btn(bf, "Cargar sesión previa", self._load_session,  PURPLE)
+        self._btn(bf, "Calificar PDF",        self._start_grading,      SUCCESS)
+        self._btn(bf, "Procesar lote…",       self._open_batch_dialog,  ACCENT)
+        self._btn(bf, "Cargar sesión previa", self._load_session,       PURPLE)
 
     def _btn(self, parent, text, cmd, color):
         """Frame+Label button — macOS respects bg/fg on these unlike tk.Button."""
@@ -491,6 +745,10 @@ class OMRApp(tk.Tk):
             messagebox.showinfo("Éxito", f"Hoja OMR guardada en:\n{path}")
         except Exception as e:
             messagebox.showerror("Error", str(e))
+
+    # ── batch dialog ──────────────────────────────────────────────────────────
+    def _open_batch_dialog(self):
+        BatchDialog(self)
 
     # ── grading ───────────────────────────────────────────────────────────────
     def _start_grading(self):

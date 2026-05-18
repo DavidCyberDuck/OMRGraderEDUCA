@@ -374,6 +374,74 @@ def _sk_sheet(wb, results, student_db=None):
         avg.alignment = Alignment(horizontal="center")
         avg.font = Font(name="Arial", size=10, bold=True)
 
+    # ── Per-question average row ───────────────────────────────────────────────
+    FIRST_DATA    = 3                       # first student data row
+    last_data_row = 2 + len(results)        # last student data row
+    avg_row       = last_data_row + 2       # one blank row gap
+
+    lbl = ws.cell(row=avg_row, column=1, value="Promedio por pregunta")
+    lbl.font      = Font(bold=True, color=C_HDR_FG, name="Arial", size=10)
+    lbl.fill      = PatternFill("solid", fgColor=C_ACCENT)
+    lbl.alignment = Alignment(horizontal="center", vertical="center")
+    lbl.border    = _border()
+
+    # Fill meta columns (Nombre / Grado / Grupo) with empty styled cells
+    meta_len = 4 if has_db else 3
+    for col in range(2, meta_len + 1):
+        cell = ws.cell(row=avg_row, column=col, value="")
+        cell.fill   = PatternFill("solid", fgColor=C_ACCENT)
+        cell.border = _border()
+
+    # AVERAGE formula for each of the 10 SK question columns
+    for i in range(10):
+        col     = sk_off + i
+        col_ltr = get_column_letter(col)
+        cell    = ws.cell(
+            row=avg_row, column=col,
+            value=f"=IFERROR(ROUND(AVERAGE({col_ltr}{FIRST_DATA}:{col_ltr}{last_data_row}),2),\"-\")")
+        cell.font      = Font(bold=True, name="Arial", size=10)
+        cell.fill      = PatternFill("solid", fgColor=C_ACCENT)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border    = _border()
+
+    # Overall mean-of-averages cell
+    avg_ltr  = get_column_letter(avg_col)
+    ov_cell  = ws.cell(
+        row=avg_row, column=avg_col,
+        value=f"=IFERROR(ROUND(AVERAGE({avg_ltr}{FIRST_DATA}:{avg_ltr}{last_data_row}),2),\"-\")")
+    ov_cell.font      = Font(bold=True, name="Arial", size=10)
+    ov_cell.fill      = PatternFill("solid", fgColor=C_ACCENT)
+    ov_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ov_cell.border    = _border()
+
+    # ── Bar chart: average score per SK question ───────────────────────────────
+    from openpyxl.chart import BarChart, Reference as Ref
+    sk_bar = BarChart()
+    sk_bar.type   = "bar"   # horizontal — easier to read 10 labeled items
+    sk_bar.title  = "Promedio por Pregunta — Autoconocimiento"
+    sk_bar.style  = 10
+    sk_bar.x_axis.title = "Promedio (1–5)"
+    sk_bar.y_axis.title = "Pregunta"
+    sk_bar.x_axis.scaling.min = 0
+    sk_bar.x_axis.scaling.max = 5
+    sk_bar.height = 14
+    sk_bar.width  = 20
+
+    # Data: the 10 AVERAGE cells in avg_row (columns sk_off … sk_off+9)
+    sk_bar.add_data(
+        Ref(ws, min_col=sk_off, max_col=sk_off + 9,
+            min_row=avg_row, max_row=avg_row),
+        titles_from_data=False)
+    # Categories: header row labels SK1–SK10
+    sk_bar.set_categories(
+        Ref(ws, min_col=sk_off, max_col=sk_off + 9,
+            min_row=2, max_row=2))
+    sk_bar.series[0].graphicalProperties.solidFill = C_ACCENT
+    sk_bar.series[0].graphicalProperties.line.solidFill = C_ACCENT
+
+    chart_anchor = f"{get_column_letter(avg_col + 2)}{avg_row - 2}"
+    ws.add_chart(sk_bar, chart_anchor)
+
     for col, w in enumerate(meta_widths + [7]*10 + [10], 1):
         _cw(ws, col, w)
 
