@@ -71,10 +71,25 @@ def _preprocess(img_rgb):
 
 def _find_corners(thresh, shape):
     """
-    For each corner quadrant pick the largest-area square-ish contour.
-    The real corner markers are always the biggest dark squares in their quadrant.
+    For each corner quadrant find the contour closest to the known marker
+    position (derived from MARKER_OFFSET and page dimensions).
+
+    Picking by proximity rather than by area prevents large stray contours
+    (section borders, bubble clusters) from being mistaken for corner markers
+    when they happen to be larger than the actual 18 pt square.
     """
     h, w = shape[:2]
+
+    # Ideal marker centres in pixel space
+    ox = MARKER_OFFSET * w / PAGE_W
+    oy = MARKER_OFFSET * h / PAGE_H
+    ideal = {
+        'tl': (ox,      oy),
+        'tr': (w - ox,  oy),
+        'bl': (ox,      h - oy),
+        'br': (w - ox,  h - oy),
+    }
+
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL,
                                    cv2.CHAIN_APPROX_SIMPLE)
     quad = {'tl': [], 'tr': [], 'bl': [], 'br': []}
@@ -86,8 +101,7 @@ def _find_corners(thresh, shape):
         if not (0.35 < cw / max(ch, 1) < 2.8):
             continue
 
-        # Use contour moments for accurate centroid instead of bounding-box
-        # midpoint — avoids sub-pixel drift on asymmetric scanned contours.
+        # Use contour moments for accurate centroid
         M = cv2.moments(cnt)
         if M["m00"] == 0:
             continue
@@ -111,7 +125,9 @@ def _find_corners(thresh, shape):
     for key in ('tl', 'tr', 'bl', 'br'):
         if not quad[key]:
             return None
-        best = max(quad[key], key=lambda c: c[2])
+        ix, iy = ideal[key]
+        # Pick the candidate closest to the expected marker position
+        best = min(quad[key], key=lambda c: (c[0] - ix) ** 2 + (c[1] - iy) ** 2)
         corners.append((best[0], best[1]))
     return corners  # [tl, tr, bl, br]
 
