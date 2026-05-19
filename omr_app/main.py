@@ -565,10 +565,10 @@ class OMRApp(tk.Tk):
                                     fg="white" if c == choice else FG2)
                 return select
 
-            current = var.get()
+            selected = var.get()
             for ch, b in btns.items():
-                b.configure(bg=ACCENT if ch == current else BG2,
-                            fg="white" if ch == current else FG2)
+                b.configure(bg=ACCENT if ch == selected else BG2,
+                            fg="white" if ch == selected else FG2)
                 b.bind("<Button-1>", _make_select(var, btns, ch))
 
             self.answer_vars.append(var)
