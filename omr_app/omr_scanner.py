@@ -73,23 +73,43 @@ def _find_corners(thresh, shape):
     """
     For each corner quadrant pick the largest-area square-ish contour.
     The real corner markers are always the biggest dark squares in their quadrant.
+
+    Improvements over the naive bounding-box approach:
+    - Use contour moments for sub-pixel-accurate centroid (avoids the ~½-bubble
+      drift caused by asymmetric contour borders on a bounding-box midpoint).
+    - Tighter aspect-ratio filter (0.60–1.70) rejects horizontal lines / text.
+    - Coarse area filter tuned to the printed marker size at 150–300 DPI.
+    - Corner zone widened to 20 % so slightly-skewed scans still find all four.
     """
     h, w = shape[:2]
+    # Expected marker area at 200 Dpi: (18pt * 200/72)^2 ≈ 2 500 px²
+    # Allow ×0.15 – ×4 range for variation in scanner exposure / DPI
+    MIN_AREA = 300
+    MAX_AREA = 12_000
+
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL,
                                    cv2.CHAIN_APPROX_SIMPLE)
     quad = {'tl': [], 'tr': [], 'bl': [], 'br': []}
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if area < 40:
+        if not (MIN_AREA <= area <= MAX_AREA):
             continue
         bx, by, cw, ch = cv2.boundingRect(cnt)
-        if not (0.35 < cw / max(ch, 1) < 2.8):
+        aspect = cw / max(ch, 1)
+        if not (0.60 < aspect < 1.70):          # must be roughly square
             continue
-        cx, cy = bx + cw // 2, by + ch // 2
-        in_l = cx < w * 0.15
-        in_r = cx > w * 0.85
-        in_t = cy < h * 0.15
-        in_b = cy > h * 0.85
+
+        # Moment-based centroid is more accurate than bounding-box midpoint
+        M = cv2.moments(cnt)
+        if M["m00"] == 0:
+            continue
+        cx = int(M["m10"] / M["m00"])
+        cy = int(M["m01"] / M["m00"])
+
+        in_l = cx < w * 0.20
+        in_r = cx > w * 0.80
+        in_t = cy < h * 0.20
+        in_b = cy > h * 0.80
         if in_l and in_t:
             quad['tl'].append((cx, cy, area))
         if in_r and in_t:
