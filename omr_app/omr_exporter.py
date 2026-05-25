@@ -36,9 +36,10 @@ def _cw(ws, col, w):
 
 
 def export_to_excel(grade_results, answer_key, exam_name, output_path,
-                    student_db=None):
+                    student_db=None, show_page_num=False):
     wb = Workbook()
-    _summary(wb, grade_results, exam_name, student_db)
+    _summary(wb, grade_results, exam_name, student_db,
+             show_page_num=show_page_num)
     _detail(wb, grade_results, answer_key)
     _sk_sheet(wb, grade_results, student_db)
     _words_sheet(wb, grade_results)
@@ -50,12 +51,25 @@ def export_to_excel(grade_results, answer_key, exam_name, output_path,
     return output_path
 
 
-def _summary(wb, results, exam_name, student_db=None):
+def _summary(wb, results, exam_name, student_db=None, show_page_num=False):
     ws = wb.create_sheet("Resumen")
     ws.sheet_view.showGridLines = False
 
-    has_db = student_db is not None
-    n_cols = 10 if has_db else 9
+    has_db   = student_db is not None
+    pg_off   = 1 if show_page_num else 0   # extra leading column when True
+
+    if has_db:
+        headers    = (["Pág. PDF"] if show_page_num else []) + \
+                     ["Folio","Nombre","Grado","Grupo","Puntaje","Total",
+                      "Porcentaje (%)","Prom. Autoconoc.","Confianza (%)","Estado"]
+        col_widths = ([7] if show_page_num else []) + [8,22,8,8,10,8,16,18,14,10]
+    else:
+        headers    = (["Pág. PDF"] if show_page_num else []) + \
+                     ["Folio","Grado","Grupo","Puntaje","Total",
+                      "Porcentaje (%)","Prom. Autoconoc.","Confianza (%)","Estado"]
+        col_widths = ([7] if show_page_num else []) + [8,8,8,10,8,16,18,14,10]
+
+    n_cols       = len(headers)
     last_col_ltr = get_column_letter(n_cols)
 
     ws.merge_cells(f"A1:{last_col_ltr}1")
@@ -70,35 +84,33 @@ def _summary(wb, results, exam_name, student_db=None):
     ws["A2"].font  = Font(italic=True, size=9, color="888888", name="Arial")
     ws["A2"].alignment = Alignment(horizontal="right")
 
-    if has_db:
-        headers = ["Folio","Nombre","Grado","Grupo","Puntaje","Total",
-                   "Porcentaje (%)","Prom. Autoconoc.","Confianza (%)","Estado"]
-        pct_col = 7
-        col_widths = [8,22,8,8,10,8,16,18,14,10]
-    else:
-        headers = ["Folio","Grado","Grupo","Puntaje","Total",
-                   "Porcentaje (%)","Prom. Autoconoc.","Confianza (%)","Estado"]
-        pct_col = 6
-        col_widths = [8,8,8,10,8,16,18,14,10]
-
     for col, h in enumerate(headers, 1):
         _hdr(ws.cell(row=4, column=col, value=h))
     ws.row_dimensions[4].height = 32
 
-    # Score column in 'Detalle Preguntas' = col (4 + n_q + 1) = n_q + 5
-    # We derive n_q from the first result's mc_answers so _summary() stays independent.
-    n_q = len(results[0].mc_answers) if results else 0
-    detail_score_ltr = get_column_letter(n_q + 5)  # Puntaje column in Detalle sheet
+    # Score column in 'Detalle Preguntas' = n_q + 5 (always, regardless of pg_off)
+    n_q              = len(results[0].mc_answers) if results else 0
+    detail_score_ltr = get_column_letter(n_q + 5)
 
-    # Folio is always col A in Resumen; folio is always col B in Detalle Preguntas.
-    SCORE_COL_IDX = 5 if has_db else 4   # 1-based column index of Puntaje in this sheet
+    # Column indices in THIS sheet (1-based); shift right by pg_off when page col present
+    folio_col_idx = 1 + pg_off                    # folio for MATCH formula
+    SCORE_COL_IDX = (5 if has_db else 4) + pg_off
     TOTAL_COL_IDX = SCORE_COL_IDX + 1
     PCT_COL_IDX   = SCORE_COL_IDX + 2
+    folio_col_ltr = get_column_letter(folio_col_idx)
 
     C_YELLOW = "FFF3CD"
 
     for r, gr in enumerate(results, 5):
         bg = C_ALT if r % 2 == 0 else "FFFFFF"
+
+        # Optional page-number first column
+        if show_page_num:
+            pg_cell = ws.cell(row=r, column=1, value=gr.page_num)
+            pg_cell.font      = Font(name="Arial", size=10, bold=True)
+            pg_cell.fill      = PatternFill("solid", fgColor="FFF3CD")
+            pg_cell.alignment = Alignment(horizontal="center", vertical="center")
+            pg_cell.border    = _border()
 
         # ── Static / look-up meta columns ──────────────────────────────────────
         if has_db:
@@ -107,7 +119,8 @@ def _summary(wb, results, exam_name, student_db=None):
         else:
             meta = [gr.folio, gr.grado or "?", gr.grupo or "?"]
 
-        for col, val in enumerate(meta, 1):
+        # Meta columns start at col (1 + pg_off) to leave room for page-num column
+        for col, val in enumerate(meta, 1 + pg_off):
             cell = ws.cell(row=r, column=col, value=val)
             cell.font      = Font(name="Arial", size=10)
             cell.fill      = PatternFill("solid", fgColor=bg)
@@ -116,13 +129,13 @@ def _summary(wb, results, exam_name, student_db=None):
 
         # Yellow Nombre cell when folio not found in db
         if has_db and not student_db.get(str(gr.folio)):
-            ws.cell(row=r, column=2).fill = PatternFill("solid", fgColor=C_YELLOW)
+            ws.cell(row=r, column=2 + pg_off).fill = PatternFill("solid", fgColor=C_YELLOW)
 
         # ── Formula-based score: INDEX/MATCH into Detalle Preguntas ────────────
-        # Folio in this sheet is always col A; in Detalle it is col B.
+        # folio_col_ltr is "A" normally, "B" when page-num column is prepended.
         score_formula = (
             f"=IFERROR(INDEX('Detalle Preguntas'!${detail_score_ltr}:${detail_score_ltr},"
-            f"MATCH(A{r},'Detalle Preguntas'!$B:$B,0)),0)"
+            f"MATCH({folio_col_ltr}{r},'Detalle Preguntas'!$B:$B,0)),0)"
         )
         sc = ws.cell(row=r, column=SCORE_COL_IDX, value=score_formula)
         sc.font      = Font(name="Arial", size=10)

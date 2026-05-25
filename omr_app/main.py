@@ -40,6 +40,206 @@ CARD   = "#FFFFFF"   # white cards
 PURPLE = "#5E35B1"   # purple (load session)
 
 
+class SplitDialog(tk.Toplevel):
+    """
+    Shown after single-PDF grading when multiple grade/group combos are found.
+    Rows with a missing grade or group (shown as '?') are highlighted in amber
+    and exported with an extra 'Pág. PDF' column so the analyst can locate
+    each unidentified student in the original PDF.
+    """
+
+    # Amber used for unidentified rows
+    _AMBER    = "#FFF3CD"
+    _AMBER_FG = "#856404"
+
+    def __init__(self, app, graded, answer_key, exam_name, base_out_path):
+        super().__init__(app)
+        self.app        = app
+        self.graded     = graded
+        self.answer_key = answer_key
+        self.exam_name  = exam_name
+        self.out_dir    = os.path.dirname(base_out_path)
+
+        from collections import Counter
+        counts = Counter((gr.grado or "?", gr.grupo or "?") for gr in graded)
+        # Unidentified combos (any '?') go to the bottom
+        self.combos = sorted(
+            counts.keys(),
+            key=lambda c: (c[0] == "?" or c[1] == "?", c[0], c[1]))
+        self.counts = counts
+
+        self.title("Exportar por grado y grupo")
+        self.resizable(False, True)
+        self.configure(bg=BG)
+        self.grab_set()
+
+        self._name_vars = {}   # (grado, grupo) → StringVar
+        self._build()
+
+    @staticmethod
+    def _needs_review(grado, grupo):
+        return grado == "?" or grupo == "?"
+
+    # ── Layout ────────────────────────────────────────────────────────────────
+
+    def _build(self):
+        tk.Label(self, text="Archivos Excel por grupo", bg=BG, fg=FG,
+                 font=("Arial", 13, "bold")).pack(anchor="w", padx=16, pady=(14, 2))
+        tk.Label(self,
+                 text="Edita los nombres y pulsa Exportar. "
+                      "Las filas en amarillo tienen grado o grupo sin detectar.",
+                 bg=BG, fg=FG2, font=("Arial", 9),
+                 wraplength=520, justify="left").pack(anchor="w", padx=16)
+
+        # ── Scrollable combo list ─────────────────────────────────────────────
+        canvas = tk.Canvas(self, bg=BG, highlightthickness=0)
+        scroll = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side="left", fill="both", expand=True, padx=(16, 0), pady=8)
+        scroll.pack(side="left", fill="y", pady=8)
+
+        inner = tk.Frame(canvas, bg=BG)
+        win   = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _resize(e):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.itemconfigure(win, width=e.width)
+        inner.bind("<Configure>", _resize)
+
+        # Header row
+        for col, (txt, w) in enumerate([("Grado / Grupo", 24),
+                                         ("Alumnos", 8),
+                                         ("Nombre del archivo Excel", 0)]):
+            tk.Label(inner, text=txt, bg=BG, fg=FG2,
+                     font=("Arial", 9, "bold"),
+                     width=w, anchor="w").grid(row=0, column=col,
+                                               padx=4, pady=(0, 6),
+                                               sticky="w")
+
+        for r, combo in enumerate(self.combos, 1):
+            grado, grupo   = combo
+            count          = self.counts[combo]
+            review         = self._needs_review(grado, grupo)
+            row_bg         = self._AMBER if review else (C_ALT if r % 2 == 0 else "FFFFFF")
+            row_fg         = self._AMBER_FG if review else FG
+
+            if review:
+                default = "para_revisar.xlsx"
+                label   = f"  ⚠  Grado {grado} / Grupo {grupo}"
+                note    = "  incluirá nº de página PDF"
+            else:
+                default = f"resultados_Grado{grado}_Grupo{grupo}.xlsx"
+                label   = f"  Grado {grado} / Grupo {grupo}"
+                note    = ""
+
+            var = tk.StringVar(value=default)
+            self._name_vars[combo] = var
+
+            lbl_frame = tk.Frame(inner, bg=row_bg)
+            lbl_frame.grid(row=r, column=0, columnspan=3, sticky="ew", pady=1)
+            lbl_frame.columnconfigure(2, weight=1)
+
+            tk.Label(lbl_frame, text=label, bg=row_bg, fg=row_fg,
+                     font=("Arial", 10, "bold"), width=24,
+                     anchor="w").grid(row=0, column=0, padx=4, pady=4)
+            tk.Label(lbl_frame, text=str(count), bg=row_bg, fg=row_fg,
+                     font=("Arial", 10), width=8).grid(row=0, column=1, padx=4)
+
+            entry_frame = tk.Frame(lbl_frame, bg=row_bg)
+            entry_frame.grid(row=0, column=2, padx=(4, 12), pady=4, sticky="ew")
+            entry_frame.columnconfigure(0, weight=1)
+
+            tk.Entry(entry_frame, textvariable=var, font=("Arial", 10),
+                     bg=BG2, fg=FG, relief="flat",
+                     highlightthickness=1, highlightbackground=C_BORDER,
+                     width=30).grid(row=0, column=0, sticky="ew")
+            if note:
+                tk.Label(entry_frame, text=note, bg=row_bg, fg=self._AMBER_FG,
+                         font=("Arial", 8, "italic")).grid(row=1, column=0,
+                                                           sticky="w")
+
+        visible = min(max(len(self.combos), 2), 10)
+        canvas.configure(height=visible * 52)
+
+        # ── Output dir row ────────────────────────────────────────────────────
+        dir_row = tk.Frame(self, bg=BG)
+        dir_row.pack(fill="x", padx=16, pady=(0, 6))
+        tk.Label(dir_row, text="Carpeta de salida:", bg=BG, fg=FG2,
+                 font=("Arial", 9)).pack(side="left")
+        self._dir_lbl = tk.Label(dir_row, text=self.out_dir, bg=BG, fg=FG,
+                                  font=("Arial", 9), wraplength=380, justify="left")
+        self._dir_lbl.pack(side="left", padx=6)
+        tk.Label(dir_row, text="[Cambiar]", bg=BG, fg=ACCENT,
+                 font=("Arial", 9, "underline"), cursor="hand2").pack(side="left")
+        dir_row.winfo_children()[-1].bind("<Button-1>", lambda e: self._change_dir())
+
+        # ── Buttons ───────────────────────────────────────────────────────────
+        btn_row = tk.Frame(self, bg=BG)
+        btn_row.pack(fill="x", padx=16, pady=(4, 14))
+
+        ok_frm = tk.Frame(btn_row, bg=SUCCESS, cursor="hand2")
+        ok_frm.pack(side="left", padx=(0, 8))
+        ok_lbl = tk.Label(ok_frm, text="Exportar archivos", bg=SUCCESS, fg="white",
+                          font=("Arial", 10, "bold"), cursor="hand2", padx=14, pady=8)
+        ok_lbl.pack()
+        for w in (ok_frm, ok_lbl):
+            w.bind("<Button-1>", lambda e: self._export())
+
+        sk_frm = tk.Frame(btn_row, bg=FG2, cursor="hand2")
+        sk_frm.pack(side="left")
+        sk_lbl = tk.Label(sk_frm, text="Cancelar", bg=FG2, fg="white",
+                          font=("Arial", 10), cursor="hand2", padx=14, pady=8)
+        sk_lbl.pack()
+        for w in (sk_frm, sk_lbl):
+            w.bind("<Button-1>", lambda e: self.destroy())
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _change_dir(self):
+        d = filedialog.askdirectory(parent=self, initialdir=self.out_dir,
+                                    title="Carpeta de salida")
+        if d:
+            self.out_dir = d
+            self._dir_lbl.configure(text=d)
+
+    def _export(self):
+        exported, errors = [], []
+        for combo, var in self._name_vars.items():
+            grado, grupo = combo
+            review       = self._needs_review(grado, grupo)
+            name         = var.get().strip() or (
+                "para_revisar.xlsx" if review
+                else f"resultados_Grado{grado}_Grupo{grupo}.xlsx")
+            if not name.lower().endswith(".xlsx"):
+                name += ".xlsx"
+            out_path = os.path.join(self.out_dir, name)
+            filtered = [gr for gr in self.graded
+                        if (gr.grado or "?") == grado and (gr.grupo or "?") == grupo]
+            try:
+                # Pass show_page_num=True for unidentified groups so the analyst
+                # can find each student's page in the PDF and correct their sheet.
+                export_to_excel(filtered, self.answer_key, self.exam_name,
+                                out_path, student_db=self.app.student_db or None,
+                                show_page_num=review)
+                exported.append(name)
+                tag = "⚠ " if review else "✓ "
+                self.app._log(f"{tag}Exportado: {name} ({len(filtered)} alumnos)")
+            except Exception as e:
+                errors.append(f"{name}: {e}")
+                self.app._log(f"✗ Error exportando {name}: {e}")
+
+        msg = f"{len(exported)} archivo(s) exportado(s) correctamente."
+        if errors:
+            msg += "\n\nErrores:\n" + "\n".join(f"• {e}" for e in errors)
+        messagebox.showinfo("Exportación completa", msg, master=self)
+        self.destroy()
+
+
+# Colour alias used inside SplitDialog (mirrors omr_exporter constant)
+C_ALT    = "#F8F9FA"
+C_BORDER = "#BDC3C7"
+
+
 class BatchDialog(tk.Toplevel):
     """
     Modal dialog for batch-grading multiple PDFs.
@@ -750,6 +950,49 @@ class OMRApp(tk.Tk):
     def _open_batch_dialog(self):
         BatchDialog(self)
 
+    # ── post-grading split offer ───────────────────────────────────────────────
+    def _offer_split(self, graded, answer_key, exam_name, out_path):
+        """
+        Called on the main thread after a single-PDF grading run.
+        1. Warns about unidentified students (missing grade or group).
+        2. Shows the completion notice.
+        3. If multiple grade/group combos exist, asks whether to split.
+        """
+        n      = len(graded)
+        combos = sorted(set((gr.grado or "?", gr.grupo or "?") for gr in graded))
+
+        # ── Warn about unidentified students ──────────────────────────────────
+        flagged = [(gr.page_num, gr.folio)
+                   for gr in graded
+                   if (gr.grado or "?") == "?" or (gr.grupo or "?") == "?"]
+        if flagged:
+            lines = "\n".join(
+                f"  • Folio {f}  —  pág. {p}" for p, f in flagged[:15])
+            if len(flagged) > 15:
+                lines += f"\n  ... y {len(flagged) - 15} más"
+            messagebox.showwarning(
+                "Estudiantes sin identificar",
+                f"{len(flagged)} alumno(s) no tienen grado y/o grupo detectado:\n\n"
+                f"{lines}\n\n"
+                "Al exportar por grupo aparecerán en un archivo separado "
+                "con el número de página para localizarlos en el PDF.")
+
+        # ── Standard completion notice ────────────────────────────────────────
+        messagebox.showinfo(
+            "Calificación Completa",
+            f"Se calificaron {n} estudiantes.\n\nArchivo guardado en:\n{out_path}")
+
+        if len(combos) <= 1:
+            return   # only one combo — nothing to split
+
+        want_split = messagebox.askyesno(
+            "Múltiples grupos detectados",
+            f"Se encontraron {len(combos)} combinaciones de grado/grupo.\n\n"
+            "¿Deseas generar también un Excel separado por cada grupo?")
+
+        if want_split:
+            SplitDialog(self, graded, answer_key, exam_name, out_path)
+
     # ── grading ───────────────────────────────────────────────────────────────
     def _start_grading(self):
         if not self.pdf_path.get():
@@ -815,10 +1058,9 @@ class OMRApp(tk.Tk):
             self.status_var.set(f"Listo — {out_path}")
             self._log(f"Excel guardado: {os.path.basename(out_path)}")
             self.after(0, self._populate_results_table)
-            self.after(0, lambda: messagebox.showinfo(
-                "Calificación Completa",
-                f"Se calificaron {len(graded)} estudiantes.\n\n"
-                f"Archivo guardado en:\n{out_path}"))
+            # Offer split-by-group on the main thread once grading is done
+            self.after(0, self._offer_split,
+                       graded, answer_key, exam_name, out_path)
         except Exception as e:
             self.status_var.set(f"Error: {e}")
             self._log(f"ERROR: {e}")
